@@ -1,11 +1,10 @@
-;;; finder.el --- topic & keyword-based code finder
+;;; finder.el --- topic & keyword-based code finder  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1992, 1997-1999, 2001-2019 Free Software Foundation,
+;; Copyright (C) 1992, 1997-1999, 2001-2021 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Eric S. Raymond <esr@snark.thyrsus.com>
 ;; Created: 16 Jun 1992
-;; Version: 1.0
 ;; Keywords: help
 
 ;; This file is part of GNU Emacs.
@@ -78,8 +77,7 @@
 Each element has the form (KEYWORD . DESCRIPTION).")
 
 (defvar finder-mode-map
-  (let ((map (make-sparse-keymap))
-	(menu-map (make-sparse-keymap "Finder")))
+  (let ((map (make-sparse-keymap)))
     (define-key map " "	'finder-select)
     (define-key map "f"	'finder-select)
     (define-key map [follow-link] 'mouse-face)
@@ -90,23 +88,20 @@ Each element has the form (KEYWORD . DESCRIPTION).")
     (define-key map "p" 'previous-line)
     (define-key map "q"	'finder-exit)
     (define-key map "d"	'finder-list-keywords)
-
-    (define-key map [menu-bar finder-mode]
-      (cons "Finder" menu-map))
-    (define-key menu-map [finder-exit]
-      '(menu-item "Quit" finder-exit
-		  :help "Exit Finder mode"))
-    (define-key menu-map [finder-summary]
-      '(menu-item "Summary" finder-summary
-		  :help "Summary item on current line in a finder buffer"))
-    (define-key menu-map [finder-list-keywords]
-      '(menu-item "List keywords" finder-list-keywords
-		  :help "Display descriptions of the keywords in the Finder buffer"))
-    (define-key menu-map [finder-select]
-      '(menu-item "Select" finder-select
-		  :help "Select item on current line in a finder buffer"))
     map)
   "Keymap used in `finder-mode'.")
+
+(easy-menu-define finder-mode-menu finder-mode-map
+  "Menu for `finder-mode'."
+  '("Finder"
+    ["Select" finder-select
+     :help "Select item on current line in a finder buffer"]
+    ["List keywords" finder-list-keywords
+     :help "Display descriptions of the keywords in the Finder buffer"]
+    ["Summary" finder-summary
+     :help "Summary item on current line in a finder buffer"]
+    ["Quit" finder-exit
+     :help "Exit Finder mode"]))
 
 (defvar finder-mode-syntax-table
   (let ((st (make-syntax-table emacs-lisp-mode-syntax-table)))
@@ -178,6 +173,9 @@ directory name and PACKAGE is the name of a package (a symbol).
 When generating `package--builtins', Emacs assumes any file in
 DIR is part of the package PACKAGE.")
 
+(defconst finder-buffer "*Finder*"
+  "Name of the Finder buffer.")
+
 (defun finder-compile-keywords (&rest dirs)
   "Regenerate list of built-in Emacs packages.
 This recomputes `package--builtins' and `finder-keywords-hash',
@@ -188,67 +186,78 @@ from; the default is `load-path'."
   ;; Allow compressed files also.
   (setq package--builtins nil)
   (setq finder-keywords-hash (make-hash-table :test 'eq))
-  (let ((el-file-regexp "^\\([^=].*\\)\\.el\\(\\.\\(gz\\|Z\\)\\)?$")
-	package-override files base-name ; processed
-	summary keywords package version entry desc)
-    (dolist (d (or dirs load-path))
-      (when (file-exists-p (directory-file-name d))
-	(message "Scanning %s for finder" d)
-	(setq package-override
+  (let* ((el-file-regexp "\\`\\([^=].*\\)\\.el\\(\\.\\(gz\\|Z\\)\\)?\\'")
+         (file-count 0)
+         (files (cl-loop for d in (or dirs load-path)
+                         when (file-exists-p (directory-file-name d))
+                         append (mapcar
+                                 (lambda (f)
+                                   (cons d f))
+                                 (directory-files d nil el-file-regexp))))
+         (progress (make-progress-reporter
+                    (byte-compile-info "Scanning files for finder")
+                    0 (length files)))
+	 base-name summary keywords package version entry desc)
+    (dolist (elem files)
+      (let* ((d (car elem))
+             (f (cdr elem))
+             (package-override
 	      (intern-soft
 	       (cdr-safe
-		(assoc (file-name-nondirectory (directory-file-name d))
-		       finder--builtins-alist))))
-	(setq files (directory-files d nil el-file-regexp))
-	(dolist (f files)
-	  (unless (or (string-match finder-no-scan-regexp f)
-		      (null (setq base-name
-				  (and (string-match el-file-regexp f)
-				       (intern (match-string 1 f))))))
-;;		      (memq base-name processed))
-;; There are multiple files in the tree with the same basename.
-;; So skipping files based on basename means you randomly (depending
-;; on which order the files are traversed in) miss some packages.
-;; https://debbugs.gnu.org/14010
-;; You might think this could lead to two files providing the same package,
-;; but it does not, because the duplicates are (at time of writing)
-;; all due to files in cedet, which end up with package-override set.
-;; FIXME this is obviously fragile.
-;; Make the (eq base-name package) case below issue a warning if
-;; package-override is nil?
-;;	    (push base-name processed)
-	    (with-temp-buffer
-	      (insert-file-contents (expand-file-name f d))
-	      (setq keywords (mapcar 'intern (lm-keywords-list))
-		    package  (or package-override
-				 (let ((str (lm-header "package")))
-				   (if str (intern str)))
-				 base-name)
-		    summary  (or (cdr
-				  (assq package finder--builtins-descriptions))
-				 (lm-synopsis))
-		    version  (lm-header "version")))
-	    (when summary
-	      (setq version (ignore-errors (version-to-list version)))
-	      (setq entry (assq package package--builtins))
-	      (cond ((null entry)
-		     (push (cons package
-                                 (package-make-builtin version summary))
-			   package--builtins))
-		    ;; The idea here is that eg calc.el gets to define
-		    ;; the description of the calc package.
-		    ;; This does not work for eg nxml-mode.el.
-		    ((or (eq base-name package) version)
-		     (setq desc (cdr entry))
-		     (aset desc 0 version)
-		     (aset desc 2 summary)))
-	      (dolist (kw keywords)
-		(puthash kw
-			 (cons package
-			       (delq package
-				     (gethash kw finder-keywords-hash)))
-			 finder-keywords-hash))))))))
-
+	        (assoc (file-name-nondirectory
+                        (directory-file-name d))
+		       finder--builtins-alist)))))
+        (progress-reporter-update progress (setq file-count (1+ file-count)))
+        (unless (or (string-match finder-no-scan-regexp f)
+		    (null (setq base-name
+			        (and (string-match el-file-regexp f)
+				     (intern (match-string 1 f))))))
+          ;; (memq base-name processed))
+          ;; There are multiple files in the tree with the same
+          ;; basename.  So skipping files based on basename means you
+          ;; randomly (depending on which order the files are
+          ;; traversed in) miss some packages.
+          ;; https://debbugs.gnu.org/14010
+          ;; You might think this could lead to two files providing
+          ;; the same package, but it does not, because the duplicates
+          ;; are (at time of writing) all due to files in cedet, which
+          ;; end up with package-override set.  FIXME this is
+          ;; obviously fragile.  Make the (eq base-name package) case
+          ;; below issue a warning if package-override is nil?
+          ;;	    (push base-name processed)
+	  (with-temp-buffer
+	    (insert-file-contents (expand-file-name f d))
+	    (setq keywords (mapcar #'intern (lm-keywords-list))
+		  package  (or package-override
+			       (let ((str (lm-header "package")))
+			         (if str (intern str)))
+			       base-name)
+		  summary  (or (cdr
+			        (assq package finder--builtins-descriptions))
+			       (lm-synopsis))
+		  version  (lm-header "version")))
+	  (when summary
+	    (setq version (or (ignore-errors (version-to-list version))
+                              (alist-get package package--builtin-versions)))
+	    (setq entry (assq package package--builtins))
+	    (cond ((null entry)
+		   (push (cons package
+                               (package-make-builtin version summary))
+		         package--builtins))
+		  ;; The idea here is that eg calc.el gets to define
+		  ;; the description of the calc package.
+		  ;; This does not work for eg nxml-mode.el.
+		  ((or (eq base-name package) version)
+		   (setq desc (cdr entry))
+		   (aset desc 0 version)
+		   (aset desc 2 summary)))
+	    (dolist (kw keywords)
+	      (puthash kw
+		       (cons package
+			     (delq package
+				   (gethash kw finder-keywords-hash)))
+		       finder-keywords-hash))))))
+    (progress-reporter-done progress))
   (setq package--builtins
 	(sort package--builtins
 	      (lambda (a b) (string< (symbol-name (car a))
@@ -278,7 +287,7 @@ from; the default is `load-path'."
 
 (defun finder-compile-keywords-make-dist ()
   "Regenerate `finder-inf.el' for the Emacs distribution."
-  (apply 'finder-compile-keywords command-line-args-left)
+  (apply #'finder-compile-keywords command-line-args-left)
   (kill-emacs))
 
 ;;; Now the retrieval code
@@ -287,7 +296,7 @@ from; the default is `load-path'."
   "Insert, at column COLUMN, other args STRINGS."
   (if (>= (current-column) column) (insert "\n"))
   (move-to-column column t)
-  (apply 'insert strings))
+  (apply #'insert strings))
 
 (defvar finder-help-echo nil)
 
@@ -304,7 +313,7 @@ from; the default is `load-path'."
 		   (keys (nconc (where-is-internal
 				 'finder-mouse-select finder-mode-map)
 				keys1)))
-	      (concat (mapconcat 'key-description keys ", ")
+	      (concat (mapconcat #'key-description keys ", ")
 		      ": select item"))))
     (add-text-properties
      (line-beginning-position) (line-end-position)
@@ -326,9 +335,9 @@ not `finder-known-keywords'."
 (defun finder-list-keywords ()
   "Display descriptions of the keywords in the Finder buffer."
   (interactive)
-  (if (get-buffer "*Finder*")
-      (pop-to-buffer "*Finder*")
-    (pop-to-buffer (get-buffer-create "*Finder*"))
+  (if (get-buffer finder-buffer)
+      (pop-to-buffer finder-buffer)
+    (pop-to-buffer (get-buffer-create finder-buffer))
     (finder-mode)
     (let ((inhibit-read-only t))
       (erase-buffer)
@@ -356,7 +365,7 @@ not `finder-known-keywords'."
 (define-button-type 'finder-xref 'action #'finder-goto-xref)
 
 (defun finder-goto-xref (button)
-  "Jump to a lisp file for the BUTTON at point."
+  "Jump to a Lisp file for the BUTTON at point."
   (let* ((file (button-get button 'xref))
          (lib (locate-library file)))
     (if lib (finder-commentary lib)
@@ -382,13 +391,6 @@ FILE should be in a form suitable for passing to `locate-library'."
     (erase-buffer)
     (insert str)
     (goto-char (point-min))
-    (delete-blank-lines)
-    (goto-char (point-max))
-    (delete-blank-lines)
-    (goto-char (point-min))
-    (while (re-search-forward "^;+ ?" nil t)
-      (replace-match "" nil nil))
-    (goto-char (point-min))
     (while (re-search-forward "\\<\\([-[:alnum:]]+\\.el\\)\\>" nil t)
       (if (locate-library (match-string 1))
           (make-text-button (match-beginning 1) (match-end 1)
@@ -413,7 +415,7 @@ FILE should be in a form suitable for passing to `locate-library'."
 
 (defun finder-select ()
   "Select item on current line in a Finder buffer."
-  (interactive)
+  (interactive nil finder-mode)
   (let ((key (finder-current-item)))
       (if (string-match "\\.el$" key)
 	  (finder-commentary key)
@@ -429,6 +431,7 @@ FILE should be in a form suitable for passing to `locate-library'."
 ;;;###autoload
 (defun finder-by-keyword ()
   "Find packages matching a given keyword."
+  ;; FIXME: Why does this function exist?  Should it just be an alias?
   (interactive)
   (finder-list-keywords))
 
@@ -438,13 +441,14 @@ FILE should be in a form suitable for passing to `locate-library'."
 \\[finder-select]	more help for the item on the current line
 \\[finder-exit]	exit Finder mode and kill the Finder buffer."
   :syntax-table finder-mode-syntax-table
+  :interactive nil
   (setq buffer-read-only t
 	buffer-undo-list t)
-  (set (make-local-variable 'finder-headmark) nil))
+  (setq-local finder-headmark nil))
 
 (defun finder-summary ()
   "Summarize basic Finder commands."
-  (interactive)
+  (interactive nil finder-mode)
   (message "%s"
    (substitute-command-keys
     "\\<finder-mode-map>\\[finder-select] = select, \
@@ -453,10 +457,10 @@ finder directory, \\[finder-exit] = quit, \\[finder-summary] = help")))
 
 (defun finder-exit ()
   "Exit Finder mode.
-Delete the window and kill all Finder-related buffers."
-  (interactive)
-  (ignore-errors (delete-window))
-  (let ((buf "*Finder*"))
+Quit the window and kill all Finder-related buffers."
+  (interactive nil finder-mode)
+  (quit-window t)
+  (dolist (buf (list finder-buffer "*Finder-package*"))
     (and (get-buffer buf) (kill-buffer buf))))
 
 (defun finder-unload-function ()

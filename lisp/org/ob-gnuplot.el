@@ -1,6 +1,6 @@
 ;;; ob-gnuplot.el --- Babel Functions for Gnuplot    -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2009-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2021 Free Software Foundation, Inc.
 
 ;; Author: Eric Schulte
 ;; Keywords: literate programming, reproducible research
@@ -35,13 +35,13 @@
 
 ;; - gnuplot :: http://www.gnuplot.info/
 ;;
-;; - gnuplot-mode :: http://cars9.uchicago.edu/~ravel/software/gnuplot-mode.html
+;; - gnuplot-mode :: you can search the web for the latest active one.
 
 ;;; Code:
 (require 'ob)
+(require 'org-macs)
 
 (declare-function org-time-string-to-time "org" (s))
-(declare-function org-combine-plists "org" (&rest plists))
 (declare-function orgtbl-to-generic "org-table" (table params))
 (declare-function gnuplot-mode "ext:gnuplot-mode" ())
 (declare-function gnuplot-send-string-to-gnuplot "ext:gnuplot-mode" (str txt))
@@ -277,7 +277,5 @@ Pass PARAMS through to `orgtbl-to-generic' when exporting TABLE."
   data-file)
 
 (provide 'ob-gnuplot)
-
-
 
 ;;; ob-gnuplot.el ends here

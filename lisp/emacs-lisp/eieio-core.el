@@ -1,6 +1,6 @@
 ;;; eieio-core.el --- Core implementation for eieio  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1995-1996, 1998-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1995-1996, 1998-2021 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Version: 1.4
@@ -117,9 +117,6 @@ Currently under control of this var:
 (defsubst eieio--object-class-tag (obj)
   (aref obj 0))
 
-(defsubst eieio--object-class (obj)
-  (eieio--object-class-tag obj))
-
 
 ;;; Important macros used internally in eieio.
 
@@ -128,9 +125,16 @@ Currently under control of this var:
 (defsubst eieio--class-object (class)
   "Return the class object."
   (if (symbolp class)
-      ;; Keep the symbol if class-v is nil, for better error messages.
+      ;; Return the symbol if the class object doesn't exist,
+      ;; for better error messages.
       (or (cl--find-class class) class)
     class))
+
+(defsubst eieio--object-class (obj)
+  (let ((tag (eieio--object-class-tag obj)))
+    (if eieio-backward-compatibility
+        (eieio--class-object tag)
+      tag)))
 
 (defun class-p (x)
   "Return non-nil if X is a valid class vector.
@@ -163,9 +167,9 @@ Return nil if that option doesn't exist."
 (defun eieio-object-p (obj)
   "Return non-nil if OBJ is an EIEIO object."
   (and (recordp obj)
-       (eieio--class-p (eieio--object-class-tag obj))))
+       (eieio--class-p (eieio--object-class obj))))
 
-(define-obsolete-function-alias 'object-p 'eieio-object-p "25.1")
+(define-obsolete-function-alias 'object-p #'eieio-object-p "25.1")
 
 (defun class-abstract-p (class)
   "Return non-nil if CLASS is abstract.
@@ -211,13 +215,10 @@ It creates an autoload function for CNAME's constructor."
       ;; turn this into a usable self-pointing symbol
       (when eieio-backward-compatibility
         (set cname cname)
-        (make-obsolete-variable cname (format "use \\='%s instead" cname)
+        (make-obsolete-variable cname (format "\
+use \\='%s or turn off `eieio-backward-compatibility' instead" cname)
                                 "25.1"))
 
-      ;; Store the new class vector definition into the symbol.  We need to
-      ;; do this first so that we can call defmethod for the accessor.
-      ;; The vector will be updated by the following while loop and will not
-      ;; need to be stored a second time.
       (setf (cl--find-class cname) newc)
 
       ;; Create an autoload on top of our constructor function.
@@ -227,15 +228,23 @@ It creates an autoload function for CNAME's constructor."
         (autoload (intern (format "%s-child-p" cname)) filename "" nil nil)
         (autoload (intern (format "%s-list-p" cname)) filename "" nil nil)))))
 
-(defsubst eieio-class-un-autoload (cname)
-  "If class CNAME is in an autoload state, load its file."
-  (autoload-do-load (symbol-function cname))) ; cname
+(defun eieio--full-class-object (class)
+  "Like `eieio--class-object' but loads the class if needed."
+  (let ((c (eieio--class-object class)))
+    (and (not (symbolp c))
+         ;; If the default-object-cache slot is nil, the class object
+         ;; is still a "dummy" setup by eieio-defclass-autoload.
+         (not (eieio--class-default-object-cache c))
+         ;; FIXME: We rely on the autoload setup for the "standard"
+         ;; constructor, here!
+         (autoload-do-load (symbol-function (eieio--class-name c))))
+    c))
 
 (cl-deftype list-of (elem-type)
   `(and list
-        (satisfies (lambda (list)
-                     (cl-every (lambda (elem) (cl-typep elem ',elem-type))
-                               list)))))
+        (satisfies ,(lambda (list)
+                      (cl-every (lambda (elem) (cl-typep elem elem-type))
+                                list)))))
 
 
 (defun eieio-make-class-predicate (class)
@@ -338,19 +347,20 @@ See `defclass' for more information."
     (when eieio-backward-compatibility
       (let ((csym (intern (concat (symbol-name cname) "-list-p"))))
         (defalias csym
-              `(lambda (obj)
-                 ,(format
-                   "Test OBJ to see if it a list of objects which are a child of type %s"
-                   cname)
-                 (when (listp obj)
-                   (let ((ans t)) ;; nil is valid
-                     ;; Loop over all the elements of the input list, test
-                     ;; each to make sure it is a child of the desired object class.
-                     (while (and obj ans)
-                       (setq ans (and (eieio-object-p (car obj))
-                                      (object-of-class-p (car obj) ,cname)))
-                       (setq obj (cdr obj)))
-                     ans))))
+          (lambda (obj)
+            (:documentation
+             (format
+              "Test OBJ to see if it a list of objects which are a child of type %s"
+              cname))
+            (when (listp obj)
+              (let ((ans t)) ;; nil is valid
+                ;; Loop over all the elements of the input list, test
+                ;; each to make sure it is a child of the desired object class.
+                (while (and obj ans)
+                  (setq ans (and (eieio-object-p (car obj))
+                                 (object-of-class-p (car obj) 'cname)))
+                  (setq obj (cdr obj)))
+                ans))))
         (make-obsolete csym (format
                              "use (cl-typep ... \\='(list-of %s)) instead"
                              cname)
@@ -579,8 +589,8 @@ If SKIPNIL is non-nil, then if default value is nil return t instead."
 (defun eieio--add-new-slot (newc slot init alloc
 				 &optional defaultoverride skipnil)
   "Add into NEWC attribute SLOT.
-If a slot of that name already exists in NEWC, then do nothing.  If it doesn't exist,
-INIT is the initarg, if any.
+If a slot of that name already exists in NEWC, then do nothing.
+If it doesn't exist, INIT is the initarg, if any.
 Argument ALLOC specifies if the slot is allocated per instance, or per class.
 If optional DEFAULTOVERRIDE is non-nil, then if A exists in NEWC,
 we must override its value for a default.
@@ -720,16 +730,15 @@ Argument FN is the function calling this verifier."
               (pcase slot
                 ((and (or `',name (and name (pred keywordp)))
                       (guard (not (memq name eieio--known-slot-names))))
-                 (macroexp--warn-and-return
+                 (macroexp-warn-and-return
                   (format-message "Unknown slot `%S'" name) exp 'compile-only))
-                (_ exp)))))
+                (_ exp))))
+           (gv-setter eieio-oset))
   (cl-check-type slot symbol)
   (cl-check-type obj (or eieio-object class))
   (let* ((class (cond ((symbolp obj)
                        (error "eieio-oref called on a class: %s" obj)
-                       (let ((c (cl--find-class obj)))
-                         (if (eieio--class-p c) (eieio-class-un-autoload obj))
-                         c))
+                       (eieio--full-class-object obj))
                       (t (eieio--object-class obj))))
 	 (c (eieio--slot-name-index class slot)))
     (if (not c)
@@ -749,6 +758,7 @@ Argument FN is the function calling this verifier."
 (defun eieio-oref-default (obj slot)
   "Do the work for the macro `oref-default' with similar parameters.
 Fills in OBJ's SLOT with its default value."
+  (declare (gv-setter eieio-oset-default))
   (cl-check-type obj (or eieio-object class))
   (cl-check-type slot symbol)
   (let* ((cl (cond ((symbolp obj) (cl--find-class obj))
@@ -778,7 +788,7 @@ Fills in OBJ's SLOT with its default value."
   (cond
    ;; Is it a function call?  If so, evaluate it.
    ((eieio-eval-default-p val)
-    (eval val))
+    (eval val t))
    ;;;; check for quoted things, and unquote them
    ;;((and (consp val) (eq (car val) 'quote))
    ;; (car (cdr val)))
@@ -863,7 +873,6 @@ reverse-lookup that name, and recurse with the associated slot value."
 	(if fn
             ;; Accessing a slot via its :initarg is accepted by EIEIO
             ;; (but not CLOS) but is a bad idea (for one: it's slower).
-            ;; FIXME: We should emit a compile-time warning when this happens!
             (eieio--slot-name-index class fn)
           nil)))))
 
@@ -1011,18 +1020,17 @@ The order, in which the parents are returned depends on the
 method invocation orders of the involved classes."
   (if (or (null class) (eq class eieio-default-superclass))
       nil
-    (unless (eieio--class-default-object-cache class)
-      (eieio-class-un-autoload (eieio--class-name class)))
-    (cl-case (eieio--class-method-invocation-order class)
-      (:depth-first
-       (eieio--class-precedence-dfs class))
-      (:breadth-first
-       (eieio--class-precedence-bfs class))
-      (:c3
-       (eieio--class-precedence-c3 class))))
-  )
+    (let ((class (eieio--full-class-object class)))
+      (cl-case (eieio--class-method-invocation-order class)
+        (:depth-first
+         (eieio--class-precedence-dfs class))
+        (:breadth-first
+         (eieio--class-precedence-bfs class))
+        (:c3
+         (eieio--class-precedence-c3 class))))))
+
 (define-obsolete-function-alias
-  'class-precedence-list 'eieio--class-precedence-list "24.4")
+  'class-precedence-list #'eieio--class-precedence-list "24.4")
 
 
 ;;; Here are some special types of errors
@@ -1082,6 +1090,11 @@ method invocation orders of the involved classes."
   "Support for (subclass CLASS) specializers.
 These match if the argument is the name of a subclass of CLASS."
   (list eieio--generic-subclass-generalizer))
+
+(defmacro eieio-declare-slots (&rest slots)
+  "Declare that SLOTS are known eieio object slot names."
+  `(eval-when-compile
+     (setq eieio--known-slot-names (append ',slots eieio--known-slot-names))))
 
 (provide 'eieio-core)
 

@@ -1,5 +1,5 @@
 /* Create a pipe, with specific opening flags.
-   Copyright (C) 2009-2019 Free Software Foundation, Inc.
+   Copyright (C) 2009-2021 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@ pipe2 (int fd[2], int flags)
 {
   /* Mingw _pipe() corrupts fd on failure; also, if we succeed at
      creating the pipe but later fail at changing fcntl, we want
-     to leave fd unchanged: http://austingroupbugs.net/view.php?id=467  */
+     to leave fd unchanged: https://austingroupbugs.net/view.php?id=467  */
   int tmp[2];
   tmp[0] = fd[0];
   tmp[1] = fd[1];
@@ -107,7 +107,7 @@ pipe2 (int fd[2], int flags)
   if (pipe (fd) < 0)
     return -1;
 
-  /* POSIX <http://www.opengroup.org/onlinepubs/9699919799/functions/pipe.html>
+  /* POSIX <https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html>
      says that initially, the O_NONBLOCK and FD_CLOEXEC flags are cleared on
      both fd[0] and fd[1].  */
 

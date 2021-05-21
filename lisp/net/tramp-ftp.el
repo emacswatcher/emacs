@@ -1,6 +1,6 @@
 ;;; tramp-ftp.el --- Tramp convenience functions for Ange-FTP  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2002-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2021 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
@@ -31,8 +31,6 @@
 (require 'tramp)
 
 ;; Pacify byte-compiler.
-(eval-when-compile
-  (require 'custom))
 (defvar ange-ftp-ftp-name-arg)
 (defvar ange-ftp-ftp-name-res)
 (defvar ange-ftp-name-format)
@@ -53,8 +51,8 @@ present for backward compatibility."
     (setq file-name-handler-alist
 	  (delete a1 (delete a2 file-name-handler-alist)))))
 
-(eval-after-load "ange-ftp"
-  '(tramp-disable-ange-ftp))
+(with-eval-after-load 'ange-ftp
+  (tramp-disable-ange-ftp))
 
 ;;;###tramp-autoload
 (defun tramp-ftp-enable-ange-ftp ()
@@ -79,9 +77,9 @@ present for backward compatibility."
   ;;; This regexp recognizes absolute filenames with only one component
   ;;; on Windows, for the sake of hostname completion.
   (and (memq system-type '(ms-dos windows-nt))
-       (or (assoc "^[a-zA-Z]:/[^/:]*\\'" file-name-handler-alist)
+       (or (assoc "^[[:alpha:]]:/[^/:]*\\'" file-name-handler-alist)
 	   (setq file-name-handler-alist
-		 (cons '("^[a-zA-Z]:/[^/:]*\\'" .
+		 (cons '("^[:alpha:]]:/[^/:]*\\'" .
 			 ange-ftp-completion-hook-function)
 		       file-name-handler-alist)))))
 
@@ -110,7 +108,7 @@ present for backward compatibility."
 
 ;;;###tramp-autoload
 (defun tramp-ftp-file-name-handler (operation &rest args)
-  "Invoke the Ange-FTP handler for OPERATION.
+  "Invoke the Ange-FTP handler for OPERATION and ARGS.
 First arg specifies the OPERATION, second arg is a list of arguments to
 pass to the OPERATION."
   (save-match-data
@@ -178,7 +176,7 @@ pass to the OPERATION."
 ;; tramp-loaddefs.el.  Otherwise, there would be recursive autoloading.
 ;;;###tramp-autoload
 (defsubst tramp-ftp-file-name-p (filename)
-  "Check if it's a filename that should be forwarded to Ange-FTP."
+  "Check if it's a FILENAME that should be forwarded to Ange-FTP."
   (and (tramp-tramp-file-p filename)
        (string= (tramp-file-name-method (tramp-dissect-file-name filename))
 		tramp-ftp-method)))

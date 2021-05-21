@@ -1,6 +1,6 @@
 ;;; etags.el --- etags facility for Emacs  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-1986, 1988-1989, 1992-1996, 1998, 2000-2019 Free
+;; Copyright (C) 1985-1986, 1988-1989, 1992-1996, 1998, 2000-2021 Free
 ;; Software Foundation, Inc.
 
 ;; Author: Roland McGrath <roland@gnu.org>
@@ -34,7 +34,6 @@
 ;;   prefixes but somewhere within the name.
 
 (require 'ring)
-(require 'button)
 (require 'xref)
 (require 'fileloop)
 
@@ -60,7 +59,8 @@ Any other value means use the setting of `case-fold-search'."
   :type '(choice (const :tag "Case-sensitive" nil)
 		 (const :tag "Case-insensitive" t)
 		 (other :tag "Use default" default))
-  :version "21.1")
+  :version "21.1"
+  :safe 'symbolp)
 
 ;;;###autoload
 ;; Use `visit-tags-table-buffer' to cycle through tags tables in this list.
@@ -258,9 +258,9 @@ One argument, the tag info returned by `snarf-tag-function'.")
 Return non-nil if it is a valid tags table, and
 in that case, also make the tags table state variables
 buffer-local and set them to nil."
-  (set (make-local-variable 'tags-table-files) nil)
-  (set (make-local-variable 'tags-completion-table) nil)
-  (set (make-local-variable 'tags-included-tables) nil)
+  (setq-local tags-table-files nil)
+  (setq-local tags-completion-table nil)
+  (setq-local tags-included-tables nil)
   ;; We used to initialize find-tag-marker-ring and tags-location-ring
   ;; here, to new empty rings.  But that is wrong, because those
   ;; are global.
@@ -286,12 +286,18 @@ from Lisp, if the optional arg LOCAL is non-nil, set the local value.
 When you find a tag with \\[find-tag], the buffer it finds the tag
 in is given a local value of this variable which is the name of the tags
 file the tag was in."
-  (interactive (list (read-file-name "Visit tags table (default TAGS): "
-				     default-directory
-				     (expand-file-name "TAGS"
-						       default-directory)
-				     t)
-		     current-prefix-arg))
+  (interactive
+   (let ((default-tag-dir
+           (or (locate-dominating-file default-directory "TAGS")
+               default-directory)))
+     (list (read-file-name
+            "Visit tags table (default TAGS): "
+            ;; default to TAGS from default-directory up to root.
+            default-tag-dir
+            (expand-file-name "TAGS" default-tag-dir)
+            t)
+           current-prefix-arg)))
+
   (or (stringp file) (signal 'wrong-type-argument (list 'stringp file)))
   ;; Bind tags-file-name so we can control below whether the local or
   ;; global value gets set.
@@ -813,9 +819,7 @@ tags table for BUF and its (recursively) included tags tables."
   "Using tags, return a completion table for the text around point.
 If no tags table is loaded, do nothing and return nil."
   (when (or tags-table-list tags-file-name)
-    (let ((completion-ignore-case (if (memq tags-case-fold-search '(t nil))
-				      tags-case-fold-search
-				    case-fold-search))
+    (let ((completion-ignore-case (find-tag--completion-ignore-case))
 	  (pattern (find-tag--default))
 	  beg)
       (when pattern
@@ -830,20 +834,19 @@ If no tags table is loaded, do nothing and return nil."
 
 (defun find-tag-tag (string)
   "Read a tag name, with defaulting and completion."
-  (let* ((completion-ignore-case (if (memq tags-case-fold-search '(t nil))
-				     tags-case-fold-search
-				   case-fold-search))
+  (let* ((completion-ignore-case (find-tag--completion-ignore-case))
 	 (default (find-tag--default))
-	 (spec (completing-read (if default
-				    (format "%s (default %s): "
-					    (substring string 0 (string-match "[ :]+\\'" string))
-					    default)
-				  string)
+	 (spec (completing-read (format-prompt string default)
 				(tags-lazy-completion-table)
 				nil nil nil nil default)))
     (if (equal spec "")
 	(or default (user-error "There is no default tag"))
       spec)))
+
+(defun find-tag--completion-ignore-case ()
+  (if (memq tags-case-fold-search '(t nil))
+      tags-case-fold-search
+    case-fold-search))
 
 (defun find-tag--default ()
   (funcall (or find-tag-default-function
@@ -892,7 +895,7 @@ onto a ring and may be popped back to with \\[pop-tag-mark].
 Contrast this with the ring of marks gone to by the command.
 
 See documentation of variable `tags-file-name'."
-  (interactive (find-tag-interactive "Find tag: "))
+  (interactive (find-tag-interactive "Find tag"))
 
   (setq find-tag-history (cons tagname find-tag-history))
   ;; Save the current buffer's value of `find-tag-hook' before
@@ -964,7 +967,7 @@ Contrast this with the ring of marks gone to by the command.
 
 See documentation of variable `tags-file-name'."
   (declare (obsolete xref-find-definitions "25.1"))
-  (interactive (find-tag-interactive "Find tag: "))
+  (interactive (find-tag-interactive "Find tag"))
   (let* ((buf (find-tag-noselect tagname next-p regexp-p))
 	 (pos (with-current-buffer buf (point))))
     (condition-case nil
@@ -993,7 +996,7 @@ Contrast this with the ring of marks gone to by the command.
 
 See documentation of variable `tags-file-name'."
   (declare (obsolete xref-find-definitions-other-window "25.1"))
-  (interactive (find-tag-interactive "Find tag other window: "))
+  (interactive (find-tag-interactive "Find tag other window"))
 
   ;; This hair is to deal with the case where the tag is found in the
   ;; selected window's buffer; without the hair, point is moved in both
@@ -1034,9 +1037,10 @@ Contrast this with the ring of marks gone to by the command.
 
 See documentation of variable `tags-file-name'."
   (declare (obsolete xref-find-definitions-other-frame "25.1"))
-  (interactive (find-tag-interactive "Find tag other frame: "))
+  (interactive (find-tag-interactive "Find tag other frame"))
   (let ((pop-up-frames t))
-    (find-tag-other-window tagname next-p)))
+    (with-suppressed-warnings ((obsolete find-tag-other-window))
+      (find-tag-other-window tagname next-p))))
 
 ;;;###autoload
 (defun find-tag-regexp (regexp &optional next-p other-window)
@@ -1057,7 +1061,7 @@ Contrast this with the ring of marks gone to by the command.
 
 See documentation of variable `tags-file-name'."
   (declare (obsolete xref-find-apropos "25.1"))
-  (interactive (find-tag-interactive "Find tag regexp: " t))
+  (interactive (find-tag-interactive "Find tag regexp" t))
   ;; We go through find-tag-other-window to do all the display hair there.
   (funcall (if other-window 'find-tag-other-window 'find-tag)
 	   regexp next-p t))
@@ -1226,34 +1230,29 @@ error message."
   "If `etags-verify-tags-table', make buffer-local format variables.
 If current buffer is a valid etags TAGS file, then give it
 buffer-local values of tags table format variables."
-  (and (etags-verify-tags-table)
-       ;; It is annoying to flash messages on the screen briefly,
-       ;; and this message is not useful.  -- rms
-       ;; (message "%s is an `etags' TAGS file" buffer-file-name)
-       (mapc (lambda (elt) (set (make-local-variable (car elt)) (cdr elt)))
-	     '((file-of-tag-function . etags-file-of-tag)
-	       (tags-table-files-function . etags-tags-table-files)
-	       (tags-completion-table-function . etags-tags-completion-table)
-	       (snarf-tag-function . etags-snarf-tag)
-	       (goto-tag-location-function . etags-goto-tag-location)
-	       (find-tag-regexp-search-function . re-search-forward)
-	       (find-tag-regexp-tag-order . (tag-re-match-p))
-	       (find-tag-regexp-next-line-after-failure-p . t)
-	       (find-tag-search-function . search-forward)
-	       (find-tag-tag-order . (tag-exact-file-name-match-p
-                                      tag-file-name-match-p
-				      tag-exact-match-p
-				      tag-implicit-name-match-p
-				      tag-symbol-match-p
-				      tag-word-match-p
-				      tag-partial-file-name-match-p
-				      tag-any-match-p))
-	       (find-tag-next-line-after-failure-p . nil)
-	       (list-tags-function . etags-list-tags)
-	       (tags-apropos-function . etags-tags-apropos)
-	       (tags-included-tables-function . etags-tags-included-tables)
-	       (verify-tags-table-function . etags-verify-tags-table)
-	       ))))
+  (when (etags-verify-tags-table)
+    (setq-local file-of-tag-function 'etags-file-of-tag)
+    (setq-local tags-table-files-function 'etags-tags-table-files)
+    (setq-local tags-completion-table-function 'etags-tags-completion-table)
+    (setq-local snarf-tag-function 'etags-snarf-tag)
+    (setq-local goto-tag-location-function 'etags-goto-tag-location)
+    (setq-local find-tag-regexp-search-function 're-search-forward)
+    (setq-local find-tag-regexp-tag-order '(tag-re-match-p))
+    (setq-local find-tag-regexp-next-line-after-failure-p t)
+    (setq-local find-tag-search-function 'search-forward)
+    (setq-local find-tag-tag-order '(tag-exact-file-name-match-p
+                                     tag-file-name-match-p
+                                     tag-exact-match-p
+                                     tag-implicit-name-match-p
+                                     tag-symbol-match-p
+                                     tag-word-match-p
+                                     tag-partial-file-name-match-p
+                                     tag-any-match-p))
+    (setq-local find-tag-next-line-after-failure-p nil)
+    (setq-local list-tags-function 'etags-list-tags)
+    (setq-local tags-apropos-function 'etags-tags-apropos)
+    (setq-local tags-included-tables-function 'etags-tags-included-tables)
+    (setq-local verify-tags-table-function 'etags-verify-tags-table)))
 
 (defun etags-verify-tags-table ()
   "Return non-nil if the current buffer is a valid etags TAGS file."
@@ -1312,7 +1311,7 @@ buffer-local values of tags table format variables."
       ;; Find the end of the tag and record the whole tag text.
       (search-forward "\177")
       (setq tag-text (buffer-substring (1- (point)) (point-at-bol)))
-      ;; If use-explicit is non nil and explicit tag is present, use it as part of
+      ;; If use-explicit is non-nil and explicit tag is present, use it as part of
       ;; return value. Else just skip it.
       (setq explicit-start (point))
       (when (and (search-forward "\001" (point-at-bol 2) t)
@@ -1415,6 +1414,10 @@ hits the start of file."
 	  (goto-func goto-tag-location-function)
 	  tag tag-info pt)
     (forward-line 1)
+    ;; Exuberant ctags add a line starting with the DEL character;
+    ;; skip past it.
+    (when (looking-at "\177")
+      (forward-line 1))
     (while (not (or (eobp) (looking-at "\f")))
       ;; We used to use explicit tags when available, but the current goto-func
       ;; can only handle implicit tags.
@@ -1581,27 +1584,27 @@ hits the start of file."
   "Return non-nil if current buffer is empty.
 If empty, make buffer-local values of the tags table format variables
 that do nothing."
-  (and (zerop (buffer-size))
-       (mapc (lambda (sym) (set (make-local-variable sym) 'ignore))
-	     '(tags-table-files-function
-	       tags-completion-table-function
-	       find-tag-regexp-search-function
-	       find-tag-search-function
-	       tags-apropos-function
-	       tags-included-tables-function))
-       (set (make-local-variable 'verify-tags-table-function)
-            (lambda () (zerop (buffer-size))))))
+  (when (zerop (buffer-size))
+    (setq-local tags-table-files-function #'ignore)
+    (setq-local tags-completion-table-function #'ignore)
+    (setq-local find-tag-regexp-search-function #'ignore)
+    (setq-local find-tag-search-function #'ignore)
+    (setq-local tags-apropos-function #'ignore)
+    (setq-local tags-included-tables-function #'ignore)
+    (setq-local verify-tags-table-function
+                (lambda () (zerop (buffer-size))))))
+
 
 ;; Match qualifier functions for tagnames.
 ;; These functions assume the etags file format defined in etc/ETAGS.EBNF.
 
 ;; This might be a neat idea, but it's too hairy at the moment.
 ;;(defmacro tags-with-syntax (&rest body)
+;;  (declare (debug t))
 ;;   `(with-syntax-table
 ;;        (with-current-buffer (find-file-noselect (file-of-tag))
 ;;          (syntax-table))
 ;;      ,@body))
-;;(put 'tags-with-syntax 'edebug-form-spec '(&rest form))
 
 ;; exact file name match, i.e. searched tag must match complete file
 ;; name including directories parts if there are some.
@@ -1807,8 +1810,8 @@ argument is passed to `next-file', which see)."
 Stops when a match is found.
 To continue searching for next match, use command \\[tags-loop-continue].
 
-If FILES if non-nil should be a list or an iterator returning the files to search.
-The search will be restricted to these files.
+If FILES if non-nil should be a list or an iterator returning the
+files to search.  The search will be restricted to these files.
 
 Also see the documentation of the `tags-file-name' variable."
   (interactive "sTags search (regexp): ")
@@ -1832,7 +1835,7 @@ Also see the documentation of the `tags-file-name' variable."
 Third arg DELIMITED (prefix arg) means replace only word-delimited matches.
 If you exit (\\[keyboard-quit], RET or q), you can resume the query replace
 with the command \\[tags-loop-continue].
-For non-interactive use, superceded by `fileloop-initialize-replace'."
+For non-interactive use, superseded by `fileloop-initialize-replace'."
   (declare (advertised-calling-convention (from to &optional delimited) "27.1"))
   (interactive (query-replace-read-args "Tags query replace (regexp)" t t))
   (fileloop-initialize-replace
@@ -1842,24 +1845,47 @@ For non-interactive use, superceded by `fileloop-initialize-replace'."
    delimited)
   (fileloop-continue))
 
-(defun tags-complete-tags-table-file (string predicate what) ; Doc string?
+(defun tags-complete-tags-table-file (string predicate what)
+  "Complete STRING from file names in the current tags table.
+PREDICATE, if non-nil, is a function to filter possible matches:
+if it returns nil, the match is ignored.  If PREDICATE is nil,
+every possible match is acceptable.
+WHAT is a flag specifying the type of completion: t means `all-completions'
+operation, any other value means `try-completions' operation.
+
+This function serves as COLLECTION argument to `completing-read',
+see the Info node `(elisp) Programmed Completion' for more detailed
+description of the arguments."
   (save-excursion
     ;; If we need to ask for the tag table, allow that.
     (let ((enable-recursive-minibuffers t))
       (visit-tags-table-buffer))
     (if (eq what t)
-	(all-completions string (tags-table-files) predicate)
+        (all-completions string (tags-table-files) predicate)
       (try-completion string (tags-table-files) predicate))))
+
+(defun tags--get-current-buffer-name-in-tags-file ()
+  "Get the file name that the current buffer corresponds in the tags file."
+  (let ((tag-dir
+         (save-excursion
+           (visit-tags-table-buffer)
+           (file-name-directory (buffer-file-name)))))
+    (file-relative-name (buffer-file-name) tag-dir)))
 
 ;;;###autoload
 (defun list-tags (file &optional _next-match)
   "Display list of tags in file FILE.
-This searches only the first table in the list, and no included tables.
-FILE should be as it appeared in the `etags' command, usually without a
-directory specification."
-  (interactive (list (completing-read "List tags in file: "
-				      'tags-complete-tags-table-file
-				      nil t nil)))
+This searches only the first table in the list, and no included
+tables.  FILE should be as it appeared in the `etags' command,
+usually without a directory specification.  If called
+interactively, FILE defaults to the file name of the current
+buffer."
+  (interactive (list (completing-read
+                      "List tags in file: "
+                      'tags-complete-tags-table-file
+                      nil t
+                      ;; Default FILE to the current buffer.
+                      (tags--get-current-buffer-name-in-tags-file))))
   (with-output-to-temp-buffer "*Tags List*"
     (princ (substitute-command-keys "Tags in file `"))
     (tags-with-face 'highlight (princ file))
@@ -2028,7 +2054,10 @@ for \\[find-tag] (which see)."
 
 (defvar etags-xref-find-definitions-tag-order '(tag-exact-match-p
                                                 tag-implicit-name-match-p)
-  "Tag order used in `xref-backend-definitions' to look for definitions.")
+  "Tag order used in `xref-backend-definitions' to look for definitions.
+
+If you want `xref-find-definitions' to find the tagged files by their
+file name, add `tag-partial-file-name-match-p' to the list value.")
 
 ;;;###autoload
 (defun etags--xref-backend () 'etags)
@@ -2039,11 +2068,14 @@ for \\[find-tag] (which see)."
 (cl-defmethod xref-backend-identifier-completion-table ((_backend (eql etags)))
   (tags-lazy-completion-table))
 
+(cl-defmethod xref-backend-identifier-completion-ignore-case ((_backend (eql etags)))
+  (find-tag--completion-ignore-case))
+
 (cl-defmethod xref-backend-definitions ((_backend (eql etags)) symbol)
   (etags--xref-find-definitions symbol))
 
-(cl-defmethod xref-backend-apropos ((_backend (eql etags)) symbol)
-  (etags--xref-find-definitions symbol t))
+(cl-defmethod xref-backend-apropos ((_backend (eql etags)) pattern)
+  (etags--xref-find-definitions (xref-apropos-regexp pattern) t))
 
 (defun etags--xref-find-definitions (pattern &optional regexp?)
   ;; This emulates the behavior of `find-tag-in-order' but instead of
@@ -2053,9 +2085,7 @@ for \\[find-tag] (which see)."
          (first-time t)
          (search-fun (if regexp? #'re-search-forward #'search-forward))
          (marks (make-hash-table :test 'equal))
-         (case-fold-search (if (memq tags-case-fold-search '(nil t))
-                               tags-case-fold-search
-                             case-fold-search))
+         (case-fold-search (find-tag--completion-ignore-case))
          (cbuf (current-buffer)))
     (save-excursion
       (while (visit-tags-table-buffer (not first-time) cbuf)
@@ -2069,14 +2099,15 @@ for \\[find-tag] (which see)."
               (beginning-of-line)
               (pcase-let* ((tag-info (etags-snarf-tag))
                            (`(,hint ,line . _) tag-info))
-                (unless (eq hint t) ; hint==t if we are in a filename line
-                  (let* ((file (file-of-tag))
-                         (mark-key (cons file line)))
-                    (unless (gethash mark-key marks)
-                      (let ((loc (xref-make-etags-location
-                                  tag-info (expand-file-name file))))
-                        (push (xref-make hint loc) xrefs)
-                        (puthash mark-key t marks)))))))))))
+                (let* ((file (file-of-tag))
+                       (mark-key (cons file line)))
+                  (unless (gethash mark-key marks)
+                    (let ((loc (xref-make-etags-location
+                                tag-info (expand-file-name file))))
+                      (push (xref-make (if (eq hint t) "(filename match)" hint)
+                                       loc)
+                            xrefs)
+                      (puthash mark-key t marks))))))))))
     (nreverse xrefs)))
 
 (defclass xref-etags-location (xref-location)
@@ -2094,8 +2125,10 @@ for \\[find-tag] (which see)."
     (let ((buffer (find-file-noselect file)))
       (with-current-buffer buffer
         (save-excursion
-          (etags-goto-tag-location tag-info)
-          (point-marker))))))
+          (save-restriction
+            (widen)
+            (etags-goto-tag-location tag-info)
+            (point-marker)))))))
 
 (cl-defmethod xref-location-line ((l xref-etags-location))
   (with-slots (tag-info) l

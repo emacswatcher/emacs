@@ -10,7 +10,7 @@
 @copying
 This manual is for ERC as distributed with Emacs @value{EMACSVER}.
 
-Copyright @copyright{} 2005--2019 Free Software Foundation, Inc.
+Copyright @copyright{} 2005--2021 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -36,7 +36,7 @@ and modified without restriction.
 @titlepage
 @title ERC manual
 @subtitle a full-featured IRC client
-@subtitle for Emacs and XEmacs
+@subtitle for Emacs
 
 @c The following two commands
 @c start the copyright page.
@@ -140,12 +140,12 @@ out.
 
 @item Connect to Freenode
 
-Run @kbd{M-x erc}.  Use ``irc.freenode.net'' as the IRC server, ``6667''
-as the port, and choose a nickname.
+Run @kbd{M-x erc}.  Use ``chat.freenode.net'' as the IRC server,
+``6667'' as the port, and choose a nickname.
 
 @item Get used to the interface
 
-Switch to the ``irc.freenode.net:6667'' buffer, if you're not already
+Switch to the ``chat.freenode.net:6667'' buffer, if you're not already
 there.  You will see first some messages about checking for ident, and
 then a bunch of other messages that describe the current IRC server.
 
@@ -162,9 +162,10 @@ channel.
 
 If you would like to be able to talk with people privately on the
 Freenode network, you will have to ``register'' your nickname.  To do
-so, switch to the ``irc.freenode.net:6667'' buffer and type ``/msg
+so, switch to the ``chat.freenode.net:6667'' buffer and type ``/msg
 NickServ register <password>'', replacing ``<password>'' with your
-desired password.  It should tell you that the operation was successful.
+desired password.  It should tell you that the operation was
+successful.
 
 @item Talk to people in the channel
 
@@ -283,8 +284,8 @@ Complete the given word, using ispell.
 @item C-c C-a (@code{erc-bol})
 Go to beginning of line or end of prompt.
 
-@item C-c C-b (@code{erc-iswitchb})
-Use @code{iswitchb-read-buffer} to prompt for a ERC buffer to switch to.
+@item C-c C-b (@code{erc-switch-to-buffer})
+Use @code{read-buffer} to prompt for a ERC buffer to switch to.
 
 @item C-c C-c (@code{erc-toggle-interpret-controls})
 Toggle interpretation of control sequences in messages.
@@ -513,13 +514,83 @@ Non-interactively, it takes the following keyword arguments.
 
 That is, if called with the following arguments, @var{server} and
 @var{full-name} will be set to those values, whereas
-@code{erc-compute-port}, @code{erc-compute-nick} and
-@code{erc-compute-full-name} will be invoked for the values of the other
-parameters.
+@code{erc-compute-port} and @code{erc-compute-nick} will be invoked
+for the values of the other parameters.
 
 @example
-(erc :server "irc.freenode.net" :full-name "Harry S Truman")
+(erc :server "chat.freenode.net" :full-name "Harry S Truman")
 @end example
+@end defun
+
+To connect securely over an encrypted TLS connection, use @kbd{M-x
+erc-tls}.
+
+@defun erc-tls
+Select connection parameters and run ERC over TLS@.
+Non-interactively, it takes the following keyword arguments.
+
+@itemize @bullet
+@item @var{server}
+@item @var{port}
+@item @var{nick}
+@item @var{password}
+@item @var{full-name}
+@item @var{client-certificate}
+@end itemize
+
+That is, if called with the following arguments, @var{server} and
+@var{full-name} will be set to those values, whereas
+@code{erc-compute-port} and @code{erc-compute-nick} will be invoked
+for the values of the other parameters, and @code{client-certificate}
+will be @code{nil}.
+
+@example
+(erc-tls :server "chat.freenode.net" :full-name "Harry S Truman")
+@end example
+
+To use a certificate with @code{erc-tls}, specify the optional
+@var{client-certificate} keyword argument, whose value should be as
+described in the documentation of @code{open-network-stream}: if
+non-@code{nil}, it should either be a list where the first element is
+the file name of the private key corresponding to a client certificate
+and the second element is the file name of the client certificate
+itself to use when connecting over TLS, or @code{t}, which means that
+@code{auth-source} will be queried for the private key and the
+certificate.  Authenticating using a TLS client certificate is also
+referred to as ``CertFP'' (Certificate Fingerprint) authentication by
+various IRC networks.
+
+Examples of use:
+
+@example
+(erc-tls :server "chat.freenode.net" :port 6697
+         :client-certificate
+         '("/home/bandali/my-cert.key"
+           "/home/bandali/my-cert.crt"))
+@end example
+
+@example
+(erc-tls :server "chat.freenode.net" :port 6697
+         :client-certificate
+         `(,(expand-file-name "~/cert-freenode.key")
+           ,(expand-file-name "~/cert-freenode.crt")))
+@end example
+
+@example
+(erc-tls :server "chat.freenode.net" :port 6697
+         :client-certificate t)
+@end example
+
+In the case of @code{:client-certificate t}, you will need to add a
+line like the following to your authinfo file
+(e.g. @file{~/.authinfo.gpg}):
+
+@example
+machine chat.freenode.net key /home/bandali/my-cert.key cert /home/bandali/my-cert.crt
+@end example
+
+@xref{Help for users,,,auth, Emacs auth-source Library}, for more on the
+@file{.authinfo}/@file{.netrc} backend of @code{auth-source}.
 @end defun
 
 @subheading Server
@@ -694,12 +765,13 @@ stuff, to the current ERC buffer."
 ;; This causes ERC to connect to the Freenode network upon hitting
 ;; C-c e f.  Replace MYNICK with your IRC nick.
 (global-set-key "\C-cef" (lambda () (interactive)
-                           (erc :server "irc.freenode.net" :port "6667"
+                           (erc :server "chat.freenode.net"
+                                :port "6667"
                                 :nick "MYNICK")))
 
 ;; This causes ERC to connect to the IRC server on your own machine (if
 ;; you have one) upon hitting C-c e b.  Replace MYNICK with your IRC
-;; nick.  Often, people like to run bitlbee (http://bitlbee.org/) as an
+;; nick.  Often, people like to run bitlbee (https://bitlbee.org/) as an
 ;; AIM/Jabber/MSN to IRC gateway, so that they can use ERC to chat with
 ;; people on those networks.
 (global-set-key "\C-ceb" (lambda () (interactive)
@@ -718,7 +790,7 @@ stuff, to the current ERC buffer."
 (setq erc-autojoin-channels-alist '(("freenode.net" "#emacs" "#erc")))
 
 ;; Rename server buffers to reflect the current network name instead
-;; of SERVER:PORT (e.g., "freenode" instead of "irc.freenode.net:6667").
+;; of SERVER:PORT (e.g., "freenode" instead of "chat.freenode.net:6667").
 ;; This is useful when using a bouncer like ZNC where you have multiple
 ;; connections to the same server.
 (setq erc-rename-buffers t)
@@ -801,7 +873,7 @@ or if you have bugs to report, there are several places you can go.
 @itemize @bullet
 
 @item
-@uref{http://www.emacswiki.org/cgi-bin/wiki/ERC} is the
+@uref{https://www.emacswiki.org/emacs/ERC} is the
 emacswiki.org page for ERC@.  Anyone may add tips, hints, etc.@: to it.
 
 @item
@@ -838,7 +910,7 @@ general.
 @c mlang@@delysid.org, alex@@gnu.org
 In June 2001, Mario Lang and Alex Schroeder
 took over development and created a ERC Project at
-@uref{http://sourceforge.net/projects/erc}.
+@uref{https://sourceforge.net/projects/erc}.
 
 In reaction to a mail about the new ERC development effort, Sergey
 Berezin said, ``First of all, I'm glad that my version of ERC is being

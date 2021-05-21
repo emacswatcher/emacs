@@ -1,6 +1,6 @@
-;;; cc-awk.el --- AWK specific code within cc-mode.
+;;; cc-awk.el --- AWK specific code within cc-mode. -*- lexical-binding: t -*-
 
-;; Copyright (C) 1988, 1994, 1996, 2000-2019 Free Software Foundation,
+;; Copyright (C) 1988, 1994, 1996, 2000-2021 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Alan Mackenzie <acm@muc.de> (originally based on awk-mode.el)
@@ -49,9 +49,11 @@
     (load "cc-bytecomp" nil t)))
 
 (cc-require 'cc-defs)
+(cc-require-when-compile 'cc-langs)
+(cc-require-when-compile 'cc-fonts)
+(cc-require 'cc-engine)
 
 ;; Silence the byte compiler.
-(cc-bytecomp-defvar font-lock-mode)	; Checked with boundp before use.
 (cc-bytecomp-defvar c-new-BEG)
 (cc-bytecomp-defvar c-new-END)
 
@@ -95,7 +97,7 @@
 ;; Emacs has in the past used \r to mark hidden lines in some fashion (and
 ;; maybe still does).
 
-(defconst c-awk-esc-pair-re "\\\\\\(.\\|\n\\|\r\\|\\'\\)")
+(defconst c-awk-esc-pair-re "\\\\\\(.\\|\n\\|\\'\\)")
 ;;   Matches any escaped (with \) character-pair, including an escaped newline.
 (defconst c-awk-non-eol-esc-pair-re "\\\\\\(.\\|\\'\\)")
 ;;   Matches any escaped (with \) character-pair, apart from an escaped newline.
@@ -215,10 +217,10 @@
 (defconst c-awk-neutrals*-re
   (concat "\\(" c-awk-neutral-re "\\)*"))
 ;;   A (possibly empty) string of neutral characters (or character pairs).
-(defconst c-awk-var-num-ket-re "[])0-9a-zA-Z_$.\x80-\xff]+")
+(defconst c-awk-var-num-ket-re "[])0-9a-zA-Z_$.]+")
 ;;   Matches a char which is a constituent of a variable or number, or a ket
-;; (i.e. closing bracKET), round or square.  Assume that all characters \x80 to
-;; \xff are "letters".
+;; (i.e. closing bracKET), round or square.  (2019-07): No longer assume that
+;; all characters \x80 to \xff are "letters".
 (defconst c-awk-div-sign-re
   (concat c-awk-var-num-ket-re c-awk-neutrals*-re "/"))
 ;;   Will match a piece of AWK buffer ending in / which is a division sign, in
@@ -649,6 +651,46 @@
 ;; several lines back.  The elisp "advice" feature is used on these functions
 ;; to allow this.
 
+(defun c-awk-font-lock-invalid-namespace-separators (limit)
+  ;; This function will be called from font-lock for a region bounded by POINT
+  ;; and LIMIT, as though it were to identify a keyword for
+  ;; font-lock-keyword-face.  It always returns NIL to inhibit this and
+  ;; prevent a repeat invocation.  See elisp/lispref page "Search-based
+  ;; Fontification".
+  ;;
+  ;; This function gives invalid GAWK namepace separators (::)
+  ;; font-lock-warning-face.  "Invalid" here means there are spaces, etc.,
+  ;; around a separator, or there are more than one of them in an identifier.
+  ;; Invalid separators inside function declaration parentheses are handled
+  ;; elsewhere.
+  (while (and
+	  (< (point) limit)
+	  (c-syntactic-re-search-forward
+	   (eval-when-compile
+	     (concat "\\([^" (c-lang-const c-symbol-chars awk) "]::\\)"
+		     "\\|"
+		     ;; "\\(::[^" (c-lang-const c-symbol-start awk) "]\\)"
+		     "\\(::[^" c-alpha "_" "]\\)"
+		     "\\|"
+		     "\\(::[" (c-lang-const c-symbol-chars awk) "]*::\\)"))
+	   limit 'bound))
+    (cond
+     ((match-beginning 1) 		; " ::"
+      (c-put-font-lock-face (1+ (match-beginning 1)) (match-end 1)
+			    'font-lock-warning-face)
+      (goto-char (- (match-end 1) 2)))
+     ((match-beginning 2)		; ":: "
+      (c-put-font-lock-face (match-beginning 2) (1- (match-end 2))
+			    'font-lock-warning-face)
+      (goto-char (1- (match-end 2))))
+     (t					; "::foo::"
+      (c-put-font-lock-face (match-beginning 3) (+ 2 (match-beginning 3))
+			    'font-lock-warning-face)
+      (c-put-font-lock-face (- (match-end 3) 2) (match-end 3)
+			    'font-lock-warning-face)
+      (goto-char (- (match-end 3) 2)))))
+    nil)
+
 (defun c-awk-beginning-of-logical-line (&optional pos)
 ;; Go back to the start of the (apparent) current line (or the start of the
 ;; line containing POS), returning the buffer position of that point.  I.e.,
@@ -900,6 +942,13 @@
     (goto-char c-new-BEG)
     (c-awk-set-syntax-table-properties c-new-END)))
 
+(defun c-awk-context-expand-fl-region (beg end)
+  ;; Return a cons (NEW-BEG . NEW-END), where NEW-BEG is the beginning of the
+  ;; logical line BEG is on, and NEW-END is the beginning of the line after
+  ;; the end of the logical line that END is on.
+  (cons (save-excursion (c-awk-beginning-of-logical-line beg))
+	(c-awk-beyond-logical-line end)))
+
 ;; Awk regexps written with help from Peter Galbraith
 ;; <galbraith@mixing.qc.dfo.ca>.
 ;; Take GNU Emacs's 'words out of the following regexp-opts.  They don't work
@@ -907,18 +956,34 @@
 (defconst awk-font-lock-keywords
   (eval-when-compile
     (list
-     ;; Function names.
-     '("^\\s *\\(func\\(tion\\)?\\)\\>\\s *\\(\\sw+\\)?"
-       (1 font-lock-keyword-face) (3 font-lock-function-name-face nil t))
-     ;;
+     ;; Function declarations.
+     `(,(c-make-font-lock-search-function
+	 "^\\s *\\(func\\(tion\\)?\\)\\s +\\(\\(\\sw+\\(::\\sw+\\)?\\)\\s *\\)?\\(([^()]*)\\)?"
+	 '(1 font-lock-keyword-face t)
+	 ;; We can't use LAXMATCH in `c-make-font-lock-search-function', so....
+	 '((when (match-beginning 4)
+	     (c-put-font-lock-face
+	      (match-beginning 4) (match-end 4) font-lock-function-name-face)
+	     nil))
+	 ;; Put warning face on any use of :: inside the parens.
+	 '((when (match-beginning 6)
+	     (goto-char (1+ (match-beginning 6)))
+	     (let ((end (1- (match-end 6))))
+	       (while (and (< (point) end)
+			   (c-syntactic-re-search-forward "::" end t))
+		 (c-put-font-lock-face (- (point) 2) (point)
+				       'font-lock-warning-face)))
+	     nil))))
+
      ;; Variable names.
      (cons
       (concat "\\<"
 	      (regexp-opt
 	       '("ARGC" "ARGIND" "ARGV" "BINMODE" "CONVFMT" "ENVIRON"
-		 "ERRNO" "FIELDWIDTHS" "FILENAME" "FNR" "FS" "IGNORECASE"
-		 "LINT" "NF" "NR" "OFMT" "OFS" "ORS" "PROCINFO" "RLENGTH"
-		 "RS" "RSTART" "RT" "SUBSEP" "TEXTDOMAIN") t) "\\>")
+		 "ERRNO" "FIELDWIDTHS" "FILENAME" "FNR" "FPAT" "FS" "FUNCTAB"
+		 "IGNORECASE" "LINT" "NF" "NR" "OFMT" "OFS" "ORS" "PREC"
+		 "PROCINFO" "RLENGTH" "ROUNDMODE" "RS" "RSTART" "RT" "SUBSEP"
+		 "SYNTAB" "TEXTDOMAIN") t) "\\>")
       'font-lock-variable-name-face)
 
      ;; Special file names.  (acm, 2002/7/22)
@@ -949,7 +1014,8 @@ std\\(err\\|in\\|out\\)\\|user\\)\\)\\>\
      ;; Keywords.
      (concat "\\<"
 	     (regexp-opt
-	      '("BEGIN" "END" "break" "case" "continue" "default" "delete"
+	      '("BEGIN" "BEGINFILE" "END" "ENDFILE"
+		"break" "case" "continue" "default" "delete"
 		"do" "else" "exit" "for" "getline" "if" "in" "next"
 		"nextfile" "return" "switch" "while")
 	      t) "\\>")
@@ -959,15 +1025,19 @@ std\\(err\\|in\\|out\\)\\|user\\)\\)\\>\
 	       ,(concat
 		 "\\<"
 		 (regexp-opt
-		  '("adump" "and" "asort" "atan2" "bindtextdomain" "close"
-		    "compl" "cos" "dcgettext" "exp" "extension" "fflush"
-		    "gensub" "gsub" "index" "int" "length" "log" "lshift"
-		    "match" "mktime" "or" "print" "printf" "rand" "rshift"
+		  '("adump" "and" "asort" "asorti" "atan2" "bindtextdomain" "close"
+		    "compl" "cos" "dcgettext" "dcngettext" "exp" "extension" "fflush"
+		    "gensub" "gsub" "index" "int" "isarray" "length" "log" "lshift"
+		    "match" "mktime" "or" "patsplit" "print" "printf" "rand" "rshift"
 		    "sin" "split" "sprintf" "sqrt" "srand" "stopme"
 		    "strftime" "strtonum" "sub" "substr"  "system"
-		    "systime" "tolower" "toupper" "xor") t)
+		    "systime" "tolower" "toupper" "typeof" "xor")
+		  t)
 		 "\\>")
 	       0 c-preprocessor-face-name))
+
+     ;; Directives
+     `(eval . '("@\\(include\\|load\\|namespace\\)\\>" 0 ,c-preprocessor-face-name))
 
      ;; gawk debugging keywords.  (acm, 2002/7/21)
      ;; (Removed, 2003/6/6.  These functions are now fontified as built-ins)
@@ -979,6 +1049,9 @@ std\\(err\\|in\\|out\\)\\|user\\)\\)\\>\
      `(,(concat "\\(\\w\\|_\\)" c-awk-escaped-nls* "\\s "
 		c-awk-escaped-nls*-with-space* "(")
        (0 'font-lock-warning-face))
+
+     ;; Double :: tokens, or the same with space(s) around them.
+     #'c-awk-font-lock-invalid-namespace-separators
 
      ;; Space after \ in what looks like an escaped newline.  2002/5/31
      '("\\\\\\s +$" 0 font-lock-warning-face t)
@@ -1003,7 +1076,7 @@ std\\(err\\|in\\|out\\)\\|user\\)\\)\\>\
 ;; Matches an unterminated string/regexp, NOT including the eol at the end.
 
 (defconst c-awk-harmless-pattern-characters*
-  (concat "\\([^{;#/\"\\\\\n\r]\\|" c-awk-esc-pair-re "\\)*"))
+  (concat "\\([^{;#/\"\\\n\r]\\|" c-awk-esc-pair-re "\\)*"))
 ;; Matches any "harmless" character in a pattern or an escaped character pair.
 
 (defun c-awk-at-statement-end-p ()
@@ -1154,4 +1227,4 @@ comment at the start of cc-engine.el for more info."
 ;; indent-tabs-mode: t
 ;; tab-width: 8
 ;; End:
-;;; awk-mode.el ends here
+;;; cc-awk.el ends here

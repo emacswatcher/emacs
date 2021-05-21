@@ -1,6 +1,6 @@
 /* Fontset handler.
 
-Copyright (C) 2001-2019 Free Software Foundation, Inc.
+Copyright (C) 2001-2021 Free Software Foundation, Inc.
 Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
   2005, 2006, 2007, 2008, 2009, 2010, 2011
   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -252,14 +252,13 @@ set_fontset_fallback (Lisp_Object fontset, Lisp_Object fallback)
 
 #define BASE_FONTSET_P(fontset) (NILP (FONTSET_BASE (fontset)))
 
-/* Macros for FONT-DEF and RFONT-DEF of fontset.  */
-#define FONT_DEF_NEW(font_def, font_spec, encoding, repertory)	\
-  do {								\
-    (font_def) = make_uninit_vector (3);			\
-    ASET ((font_def), 0, font_spec);				\
-    ASET ((font_def), 1, encoding);				\
-    ASET ((font_def), 2, repertory);				\
-  } while (0)
+/* Definitions for FONT-DEF and RFONT-DEF of fontset.  */
+static Lisp_Object
+font_def_new (Lisp_Object font_spec, Lisp_Object encoding,
+	      Lisp_Object repertory)
+{
+  return CALLN (Fvector, font_spec, encoding, repertory);
+}
 
 #define FONT_DEF_SPEC(font_def) AREF (font_def, 0)
 #define FONT_DEF_ENCODING(font_def) AREF (font_def, 1)
@@ -353,7 +352,7 @@ fontset_add (Lisp_Object fontset, Lisp_Object range, Lisp_Object elt, Lisp_Objec
 			      (NILP (args[idx]) ? args[1 - idx]
 			       : CALLMANY (Fvconcat, args)));
 	from = to1 + 1;
-      } while (from < to);
+      } while (from <= to);
     }
   else
     {
@@ -367,8 +366,14 @@ fontset_add (Lisp_Object fontset, Lisp_Object range, Lisp_Object elt, Lisp_Objec
 static int
 fontset_compare_rfontdef (const void *val1, const void *val2)
 {
-  return (RFONT_DEF_SCORE (*(Lisp_Object *) val1)
-	  - RFONT_DEF_SCORE (*(Lisp_Object *) val2));
+  Lisp_Object v1 = *(Lisp_Object *) val1, v2 = *(Lisp_Object *) val2;
+  if (NILP (v1) && NILP (v2))
+    return 0;
+  else if (NILP (v1))
+    return INT_MIN;
+  else if (NILP (v2))
+    return INT_MAX;
+  return (RFONT_DEF_SCORE (v1) - RFONT_DEF_SCORE (v2));
 }
 
 /* Update a cons cell which has this form:
@@ -400,6 +405,8 @@ reorder_font_vector (Lisp_Object font_group, struct font *font)
   for (i = 0; i < size; i++)
     {
       Lisp_Object rfont_def = AREF (vec, i);
+      if (NILP (rfont_def))
+	continue;
       Lisp_Object font_def = RFONT_DEF_FONT_DEF (rfont_def);
       Lisp_Object font_spec = FONT_DEF_SPEC (font_def);
       int score = RFONT_DEF_SCORE (rfont_def) & 0xFF;
@@ -564,23 +571,25 @@ fontset_find_font (Lisp_Object fontset, int c, struct face *face,
 	   or the charset priorities were changed.  */
 	reorder_font_vector (font_group, face->ascii_face->font);
       if (charset_id >= 0)
-	/* Find a spec matching with CHARSET_ID to try it at
-	   first.  */
-	for (i = 0; i < ASIZE (vec); i++)
-	  {
-	    Lisp_Object repertory;
+	{
+	  Lisp_Object lcsetid = make_fixnum (charset_id);
+	  /* Find a spec matching with CHARSET_ID to try it at first.  */
+	  for (i = 0; i < ASIZE (vec); i++)
+	    {
+	      Lisp_Object repertory;
 
-	    rfont_def = AREF (vec, i);
-	    if (NILP (rfont_def))
-	      break;
-	    repertory = FONT_DEF_REPERTORY (RFONT_DEF_FONT_DEF (rfont_def));
-
-	    if (XFIXNUM (repertory) == charset_id)
-	      {
-		charset_matched = i;
+	      rfont_def = AREF (vec, i);
+	      if (NILP (rfont_def))
 		break;
-	      }
-	  }
+	      repertory = FONT_DEF_REPERTORY (RFONT_DEF_FONT_DEF (rfont_def));
+
+	      if (EQ (repertory, lcsetid))
+		{
+		  charset_matched = i;
+		  break;
+		}
+	    }
+	}
     }
 
   /* Find the first available font in the vector of RFONT-DEF.  If
@@ -1061,7 +1070,7 @@ font_for_char (struct face *face, int c, ptrdiff_t pos, Lisp_Object object)
 /* Make a realized fontset for ASCII face FACE on frame F from the
    base fontset BASE_FONTSET_ID.  If BASE_FONTSET_ID is -1, use the
    default fontset as the base.  Value is the id of the new fontset.
-   Called from realize_x_face.  */
+   Called from realize_gui_face.  */
 
 int
 make_fontset_for_ascii_face (struct frame *f, int base_fontset_id, struct face *face)
@@ -1537,7 +1546,7 @@ appended.  By default, FONT-SPEC overrides the previous settings.  */)
 	      repertory = CHARSET_SYMBOL_ID (repertory);
 	    }
 	}
-      FONT_DEF_NEW (font_def, font_spec, encoding, repertory);
+      font_def = font_def_new (font_spec, encoding, repertory);
     }
   else
     font_def = Qnil;
@@ -1609,14 +1618,8 @@ appended.  By default, FONT-SPEC overrides the previous settings.  */)
 
   if (charset)
     {
-      Lisp_Object arg;
-
-      arg = make_uninit_vector (5);
-      ASET (arg, 0, fontset);
-      ASET (arg, 1, font_def);
-      ASET (arg, 2, add);
-      ASET (arg, 3, ascii_changed ? Qt : Qnil);
-      ASET (arg, 4, range_list);
+      Lisp_Object arg = CALLN (Fvector, fontset, font_def, add,
+			       ascii_changed ? Qt : Qnil, range_list);
 
       map_charset_chars (set_fontset_font, Qnil, arg, charset,
 			 CHARSET_MIN_CODE (charset),
@@ -1743,13 +1746,14 @@ static Lisp_Object auto_fontset_alist;
 static ptrdiff_t num_auto_fontsets;
 
 /* Return a fontset synthesized from FONT-OBJECT.  This is called from
-   x_new_font when FONT-OBJECT is used for the default ASCII font of a
-   frame, and the returned fontset is used for the default fontset of
-   that frame.  The fontset specifies a font of the same registry as
-   FONT-OBJECT for all characters in the repertory of the registry
-   (see Vfont_encoding_alist).  If the repertory is not known, the
-   fontset specifies the font for all Latin characters assuming that a
-   user intends to use FONT-OBJECT for Latin characters.  */
+   the terminal hook set_new_font_hook when FONT-OBJECT is used for
+   the default ASCII font of a frame, and the returned fontset is used
+   for the default fontset of that frame.  The fontset specifies a
+   font of the same registry as FONT-OBJECT for all characters in the
+   repertory of the registry (see Vfont_encoding_alist).  If the
+   repertory is not known, the fontset specifies the font for all
+   Latin characters assuming that a user intends to use FONT-OBJECT
+   for Latin characters.  */
 
 int
 fontset_from_font (Lisp_Object font_object)

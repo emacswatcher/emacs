@@ -1,6 +1,6 @@
-;;; info-xref.el --- tests for info-xref.el
+;;; info-xref-tests.el --- tests for info-xref.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2013-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 

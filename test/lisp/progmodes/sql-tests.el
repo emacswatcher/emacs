@@ -1,6 +1,6 @@
 ;;; sql-tests.el --- Tests for sql.el  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2016-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2021 Free Software Foundation, Inc.
 
 ;; Author: Simen Heggestøyl <simenheg@gmail.com>
 ;; Keywords:
@@ -187,13 +187,19 @@ Perform ACTION and validate results"
       (sql-add-product 'xyz "XyzDb")
 
       (should (equal (pp-to-string (assoc 'xyz sql-product-alist))
-                     "(xyz :name \"XyzDb\")\n"))))
+                     "(xyz :name \"XyzDb\")\n")))
+
+  (sql-test-product-feature-harness
+      (sql-add-product 'stu "StuDb" :X 1 :Y "2")
+
+      (should (equal (pp-to-string (assoc 'stu sql-product-alist))
+                     "(stu :name \"StuDb\" :X 1 :Y \"2\")\n"))))
 
 (ert-deftest sql-test-add-existing-product ()
   "Add a product that already exists."
 
   (sql-test-product-feature-harness
-      (should-error (sql-add-feature 'a "Aaa"))
+      (should-error (sql-add-product 'a "Aaa"))
       (should (equal (pp-to-string (assoc 'a sql-product-alist))
                      "(a :X 1 :Y 2 :Z sql-test-feature-value-a)\n"))))
 
@@ -269,6 +275,147 @@ Perform ACTION and validate results"
 
   (sql-test-product-feature-harness
       (should-not (sql-get-product-feature 'd :Z))))
+
+;;; SQL Oracle SCAN/DEFINE
+(defmacro sql-tests-placeholder-filter-harness (orig repl outp)
+  "Set-up and tear-down of testing of placeholder filter.
+
+The placeholder in ORIG will be replaced by REPL which should
+yield OUTP."
+
+  (declare (indent 0))
+  `(let ((syntab (syntax-table))
+         (sql-oracle-scan-on t))
+     (set-syntax-table sql-mode-syntax-table)
+
+     (cl-letf
+         (((symbol-function 'read-from-minibuffer)
+           (lambda (&rest _) ,repl)))
+
+       (should (equal (sql-placeholders-filter ,orig) ,outp)))
+
+     (set-syntax-table syntab)))
+
+(ert-deftest sql-tests-placeholder-filter-simple ()
+  "Test that placeholder relacement of simple replacement text."
+  (sql-tests-placeholder-filter-harness
+    "select '&x' from dual;" "XX"
+    "select 'XX' from dual;"))
+
+(ert-deftest sql-tests-placeholder-filter-ampersand ()
+  "Test that placeholder relacement of replacement text with ampersand."
+  (sql-tests-placeholder-filter-harness
+    "select '&x' from dual;" "&Y"
+    "select '&Y' from dual;")
+
+  (sql-tests-placeholder-filter-harness
+    "select '&x' from dual;" "Y&"
+    "select 'Y&' from dual;")
+
+  (sql-tests-placeholder-filter-harness
+    "select '&x' from dual;" "Y&Y"
+    "select 'Y&Y' from dual;"))
+
+(ert-deftest sql-tests-placeholder-filter-period ()
+  "Test that placeholder relacement of token terminated by a period."
+  (sql-tests-placeholder-filter-harness
+    "select '&x.' from dual;" "&Y"
+    "select '&Y' from dual;")
+
+  (sql-tests-placeholder-filter-harness
+    "select '&x.y' from dual;" "&Y"
+    "select '&Yy' from dual;")
+
+  (sql-tests-placeholder-filter-harness
+    "select '&x..y' from dual;" "&Y"
+    "select '&Y.y' from dual;"))
+
+;; Buffer naming
+(defmacro sql-tests-buffer-naming-harness (product &rest action)
+  "Set-up and tear-down of test of buffer naming.
+
+The ACTION will be tested after set-up of PRODUCT."
+
+  (declare (indent 1))
+  `(progn
+     (ert--skip-unless (executable-find sql-sqlite-program))
+     (let (new-bufs)
+       (cl-letf
+           (((symbol-function 'make-comint-in-buffer)
+             (lambda (_name buffer _program &optional _startfile &rest _switches)
+               (let ((b (get-buffer-create buffer)))
+                 (message ">>make-comint-in-buffer %S" b)
+                 (cl-pushnew b new-bufs) ;; Keep track of what we create
+                 b))))
+
+         (let (,(intern (format "sql-%s-login-params" product)))
+           ,@action)
+
+         (let (kill-buffer-query-functions) ;; Kill what we create
+           (mapc #'kill-buffer new-bufs))))))
+
+(ert-deftest sql-tests-buffer-naming-default ()
+  "Test buffer naming."
+  (sql-tests-buffer-naming-harness sqlite
+    (sql-sqlite)
+    (message ">> %S" (current-buffer))
+    (should (equal (buffer-name) "*SQL: SQLite*"))))
+
+(ert-deftest sql-tests-buffer-naming-multiple ()
+  "Test buffer naming of multiple buffers."
+  (sql-tests-buffer-naming-harness sqlite
+    (sql-sqlite)
+    (should (equal (buffer-name) "*SQL: SQLite*"))
+
+    (switch-to-buffer "*scratch*")
+
+    (sql-sqlite)
+    (should (equal (buffer-name) "*SQL: SQLite*"))))
+
+(ert-deftest sql-tests-buffer-naming-explicit ()
+  "Test buffer naming with explicit name."
+  (sql-tests-buffer-naming-harness sqlite
+    (sql-sqlite "A")
+    (should (equal (buffer-name) "*SQL: A*"))
+
+    (switch-to-buffer "*scratch*")
+
+    (sql-sqlite "A")
+    (should (equal (buffer-name) "*SQL: A*"))))
+
+(ert-deftest sql-tests-buffer-naming-universal-argument ()
+  "Test buffer naming with explicit name."
+  (sql-tests-buffer-naming-harness sqlite
+    (cl-letf
+        (((symbol-function 'read-string)
+          (lambda (_prompt &optional _initial-input _history _default-value _inherit-input-method)
+            "1")))
+      (sql-sqlite '(4))
+      (should (equal (buffer-name) "*SQL: 1*")))
+
+    (switch-to-buffer "*scratch*")
+
+    (cl-letf
+        (((symbol-function 'read-string)
+          (lambda (_prompt &optional _initial-input _history _default-value _inherit-input-method)
+            "2")))
+      (sql-sqlite '(16))
+      (should (equal (buffer-name) "*SQL: 2*")))))
+
+(ert-deftest sql-tests-buffer-naming-existing ()
+  "Test buffer naming with an existing non-SQLi buffer."
+  (sql-tests-buffer-naming-harness sqlite
+    (get-buffer-create "*SQL: exist*")
+
+    (cl-letf
+        (((symbol-function 'read-string)
+          (lambda (_prompt &optional _initial-input _history _default-value _inherit-input-method)
+            "exist")))
+      (sql-sqlite '(4))
+      (should (equal (buffer-name) "*SQL: exist-1*")))
+
+    (kill-buffer "*SQL: exist*")))
+
 
 (provide 'sql-tests)
 ;;; sql-tests.el ends here

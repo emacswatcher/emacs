@@ -1,6 +1,6 @@
-;;; admin.el --- utilities for Emacs administration
+;;; admin.el --- utilities for Emacs administration  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2021 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -138,13 +138,20 @@ Root must be the root of an Emacs source tree."
                               (if (eq 2 (length newversion)) 0 1))))
          (majorbump (and oldversion (not (equal oldmajor newmajor))))
          (minorbump (and oldversion (not majorbump)
-                         (not (equal (cadr oldversion) (cadr newversion)))))
+                         (or (not (equal (cadr oldversion) (cadr newversion)))
+                             ;; Eg 26.2 -> 26.2.50.
+                             (and (> (length newversion)
+                                     (length oldversion))))))
          (newsfile (expand-file-name "etc/NEWS" root))
          (oldnewsfile (expand-file-name (format "etc/NEWS.%s" oldmajor) root)))
     (unless (> (length newversion) 2)   ; pretest or release candidate?
       (with-temp-buffer
         (insert-file-contents newsfile)
-        (if (re-search-forward "^\\(\\+\\+\\+ *\\|--- *\\)$" nil t)
+        (when (re-search-forward "^\\* [^\n]*\n+" nil t)
+          (display-warning 'admin
+                           "NEWS file contains empty sections - remove them?"))
+        (goto-char (point-min))
+        (if (re-search-forward "^\\(\\+\\+\\+? *$\\|---? *$\\|Temporary note:\\)" nil t)
             (display-warning 'admin
                              "NEWS file still contains temporary markup.
 Documentation changes might not have been completed!"))))
@@ -247,7 +254,7 @@ ROOT should be the root of an Emacs source tree."
     (search-forward "INFO_COMMON = ")
     (let ((start (point)))
       (end-of-line)
-      (while (and (looking-back "\\\\")
+      (while (and (looking-back "\\\\" (- (point) 2))
 		  (zerop (forward-line 1)))
 	(end-of-line))
       (append (split-string (replace-regexp-in-string
@@ -330,7 +337,7 @@ Optional argument TYPE is type of output (nil means all)."
 
 (defconst manual-doctype-string
   "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\"
-\"http://www.w3.org/TR/html4/loose.dtd\">\n\n")
+\"https://www.w3.org/TR/html4/loose.dtd\">\n\n")
 
 (defconst manual-meta-string
   "<meta http-equiv=\"content-type\" content=\"text/html; charset=utf-8\">
@@ -538,7 +545,7 @@ Leave point after the table."
 	(forward-line 1)
 	(while (not done)
 	  (cond ((re-search-forward "<tr><td.*&bull; \\(<a.*</a>\\)\
-:</td><td>&nbsp;&nbsp;</td><td[^>]*>\\(.*\\)" (line-end-position) t)
+:?</td><td>&nbsp;&nbsp;</td><td[^>]*>\\(.*\\)" (line-end-position) t)
 		 (replace-match (format "<tr><td%s>\\1</td>\n<td>\\2"
 					(if table-workaround
 					    " bgcolor=\"white\"" "")))
@@ -658,6 +665,8 @@ style=\"text-align:left\">")
 
 (defconst make-manuals-dist-output-variables
   '(("@\\(top_\\)?srcdir@" . ".")	; top_srcdir is wrong, but not used
+    ("@\\(abs_\\)?top_builddir@" . ".") ; wrong but unused
+    ("^\\(EMACS *=\\).*" . "\\1 emacs")
     ("^\\(\\(?:texinfo\\|buildinfo\\|emacs\\)dir *=\\).*" . "\\1 .")
     ("^\\(clean:.*\\)" . "\\1 infoclean")
     ("@MAKEINFO@" . "makeinfo")
@@ -675,9 +684,7 @@ style=\"text-align:left\">")
     ("@INSTALL@" . "install -c")
     ("@INSTALL_DATA@" . "${INSTALL} -m 644")
     ("@configure_input@" . "")
-    ("@AM_DEFAULT_VERBOSITY@" . "0")
-    ("@AM_V@" . "${V}")
-    ("@AM_DEFAULT_V@" . "${AM_DEFAULT_VERBOSITY}"))
+    ("@AM_DEFAULT_VERBOSITY@" . "0"))
   "Alist of (REGEXP . REPLACEMENT) pairs for `make-manuals-dist'.")
 
 (defun make-manuals-dist--1 (root type)
@@ -696,6 +703,7 @@ style=\"text-align:left\">")
     (if (file-directory-p stem)
 	(delete-directory stem t))
     (make-directory stem)
+    (setq stem (file-name-as-directory stem))
     (copy-file "../doc/misc/texinfo.tex" stem)
     (unless (equal type "emacs")
       (copy-file "../doc/emacs/emacsver.texi" stem)
@@ -706,7 +714,8 @@ style=\"text-align:left\">")
 		   (string-match-p "\\.\\(eps\\|pdf\\)\\'" file)))
 	  (copy-file file stem)))
     (with-temp-buffer
-      (let ((outvars make-manuals-dist-output-variables))
+      (let ((outvars make-manuals-dist-output-variables)
+            (case-fold-search nil))
 	(push `("@version@" . ,version) outvars)
 	(insert-file-contents (format "../doc/%s/Makefile.in" type))
 	(dolist (cons outvars)
@@ -718,7 +727,7 @@ style=\"text-align:left\">")
 	  (setq ats t)
 	  (message "Unexpanded: %s" (match-string 0)))
 	(if ats (error "Unexpanded configure variables in Makefile?")))
-      (write-region nil nil (expand-file-name (format "%s/Makefile" stem))
+      (write-region nil nil (expand-file-name (format "%sMakefile" stem))
 		    nil 'silent))
     (call-process "tar" nil nil nil "-cf" tarfile stem)
     (delete-directory stem t)
@@ -912,6 +921,60 @@ changes (in a non-trivial way).  This function does not check for that."
 			      'var var
 			      'help-echo "Mouse-2: visit this definition"
 			      :type 'cusver-xref)))))))
+
+
+;; Reminder message for open release-blocking bugs.  This requires the
+;; GNU ELPA package `debbugs'.
+
+(defun reminder-for-release-blocking-bugs (version)
+  "Submit a reminder message for release-blocking bugs of Emacs VERSION."
+  (interactive
+   (list (progn
+           (require 'debbugs-gnu)
+           (defvar debbugs-gnu-emacs-blocking-reports)
+           (defvar debbugs-gnu-emacs-current-release)
+           (completing-read
+	    "Emacs release: "
+	    (mapcar #'identity debbugs-gnu-emacs-blocking-reports)
+	    nil t debbugs-gnu-emacs-current-release))))
+
+  (require 'debbugs-gnu)
+  (declare-function debbugs-get-status "debbugs" (&rest bug-numbers))
+  (declare-function debbugs-get-attribute "debbugs" (bug-or-message attribute))
+  (require 'reporter)
+  (declare-function mail-position-on-field "sendmail" (field &optional soft))
+  (declare-function mail-text "sendmail" ())
+
+  (when-let ((id (alist-get version debbugs-gnu-emacs-blocking-reports
+                            nil nil #'string-equal))
+             (status-id (debbugs-get-status id))
+             (blockedby-ids (debbugs-get-attribute (car status-id) 'blockedby))
+             (blockedby-status
+              (apply #'debbugs-get-status (sort blockedby-ids #'<))))
+
+    (reporter-submit-bug-report
+     "<emacs-devel@gnu.org>" ; to-address
+     nil nil nil
+     (lambda () ; posthook
+       (goto-char (point-min))
+       (mail-position-on-field "subject")
+       (insert (format "Reminder: release-blocking bugs for Emacs %s (%s)"
+                       version (format-time-string "%F" nil "UTC0")))
+       (mail-text)
+       (delete-region (point) (point-max))
+       (insert "
+The following bugs are regarded as release-blocking for Emacs " version ".
+People are encouraged to work on them with priority.\n\n")
+       (dolist (i blockedby-status)
+         (unless (equal (debbugs-get-attribute i 'pending) "done")
+           (insert (format "bug#%d %s\n"
+                           (debbugs-get-attribute i 'id)
+                           (debbugs-get-attribute i 'subject)))))
+       (insert "
+If you use the debbugs package from GNU ELPA, you can apply the
+following form to see all bugs which block a given release:
+
+  (debbugs-gnu-emacs-release-blocking-reports \"" version "\")\n")))))
 
 (provide 'admin)
 

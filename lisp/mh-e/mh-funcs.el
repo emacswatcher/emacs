@@ -1,9 +1,8 @@
-;;; mh-funcs.el --- MH-E functions not everyone will use right away
+;;; mh-funcs.el --- MH-E functions not everyone will use right away  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993, 1995, 2001-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1993, 1995, 2001-2021 Free Software Foundation, Inc.
 
 ;; Author: Bill Wohler <wohler@newt.com>
-;; Maintainer: Bill Wohler <wohler@newt.com>
 ;; Keywords: mail
 ;; See: mh-e.el
 
@@ -30,8 +29,6 @@
 ;; Please add the functions in alphabetical order. If only one or two
 ;; small support routines are needed, place them with the function;
 ;; otherwise, create a separate section for them.
-
-;;; Change Log:
 
 ;;; Code:
 
@@ -124,7 +121,7 @@ folder. This is useful for folders that are easily regenerated."
         (message "Folder %s removed" folder))
     (message "Folder not removed")))
 
-(defun mh-rmf-daemon (process output)
+(defun mh-rmf-daemon (_process output)
   "The rmf PROCESS puts OUTPUT in temporary buffer.
 Display the results only if something went wrong."
   (set-buffer (get-buffer-create mh-temp-buffer))
@@ -349,7 +346,7 @@ See `mh-store-msg' for a description of DIRECTORY."
         (error "Error occurred during execution of %s" command)))))
 
 ;;;###mh-autoload
-(defun mh-undo-folder (&rest ignored)
+(defun mh-undo-folder (&rest _ignored)
   "Undo all refiles and deletes in the current folder.
 Arguments are IGNORED (for `revert-buffer')."
   (interactive)

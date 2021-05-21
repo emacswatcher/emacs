@@ -1,6 +1,6 @@
 ;;; faceup.el --- Markup language for faces and font-lock regression testing  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2013-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
 ;; Author: Anders Lindgren
 ;; Version: 0.0.6
@@ -1169,11 +1169,6 @@ Intended to be called when a file is loaded."
        (file-name-directory load-file-name)
      ;; File is being evaluated using, for example, `eval-buffer'.
      default-directory)))
-
-
-;; ----------------------------------------------------------------------
-;; The end
-;;
 
 (provide 'faceup)
 

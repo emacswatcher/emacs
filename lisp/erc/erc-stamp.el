@@ -1,11 +1,11 @@
-;;; erc-stamp.el --- Timestamping for ERC messages
+;;; erc-stamp.el --- Timestamping for ERC messages  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2002-2004, 2006-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2004, 2006-2021 Free Software Foundation, Inc.
 
 ;; Author: Mario Lang <mlang@delysid.org>
-;; Maintainer: emacs-devel@gnu.org
-;; Keywords: comm, processes, timestamp
-;; URL: http://www.emacswiki.org/cgi-bin/wiki.pl?ErcStamp
+;; Maintainer: Amin Bandali <bandali@gnu.org>
+;; Keywords: comm, timestamp
+;; URL: https://www.emacswiki.org/emacs/ErcStamp
 
 ;; This file is part of GNU Emacs.
 
@@ -35,7 +35,6 @@
 ;;; Code:
 
 (require 'erc)
-(require 'erc-compat)
 
 (defgroup erc-stamp nil
   "For long conversation on IRC it is sometimes quite
@@ -53,7 +52,6 @@ This string is processed using `format-time-string'.
 Good examples are \"%T\" and \"%H:%M\".
 
 If nil, timestamping is turned off."
-  :group 'erc-stamp
   :type '(choice (const nil)
 		 (string)))
 
@@ -67,7 +65,6 @@ screen when `erc-insert-timestamp-function' is set to
 `erc-insert-timestamp-left-and-right'.
 
 If nil, timestamping is turned off."
-  :group 'erc-stamp
   :type '(choice (const nil)
 		 (string)))
 
@@ -81,7 +78,6 @@ screen when `erc-insert-timestamp-function' is set to
 `erc-insert-timestamp-left-and-right'.
 
 If nil, timestamping is turned off."
-  :group 'erc-stamp
   :type '(choice (const nil)
 		 (string)))
 
@@ -96,7 +92,6 @@ operate on.
 
 You will probably want to set
 `erc-insert-away-timestamp-function' to the same value."
-  :group 'erc-stamp
   :type '(choice (const :tag "Both sides" erc-insert-timestamp-left-and-right)
 		 (const :tag "Right" erc-insert-timestamp-right)
 		 (const :tag "Left" erc-insert-timestamp-left)
@@ -109,7 +104,6 @@ If nil, timestamping is turned off when away unless `erc-timestamp-format'
 is set.
 
 If `erc-timestamp-format' is set, this will not be used."
-  :group 'erc-stamp
   :type '(choice (const nil)
 		 (string)))
 
@@ -118,7 +112,6 @@ If `erc-timestamp-format' is set, this will not be used."
   "Function to use to insert the away timestamp.
 
 See `erc-insert-timestamp-function' for details."
-  :group 'erc-stamp
   :type '(choice (const :tag "Both sides" erc-insert-timestamp-left-and-right)
 		 (const :tag "Right" erc-insert-timestamp-right)
 		 (const :tag "Left" erc-insert-timestamp-left)
@@ -129,7 +122,6 @@ See `erc-insert-timestamp-function' for details."
 
 This is useful for logging, because, although timestamps will be
 hidden, they will still be present in the logs."
-  :group 'erc-stamp
   :type 'boolean)
 
 (defcustom erc-echo-timestamps nil
@@ -137,20 +129,17 @@ hidden, they will still be present in the logs."
 Using this variable, you can turn off normal timestamping,
 and simply move point to an irc message to see its timestamp
 printed in the minibuffer."
-  :group 'erc-stamp
   :type 'boolean)
 
 (defcustom erc-echo-timestamp-format "Timestamped %A, %H:%M:%S"
   "Format string to be used when `erc-echo-timestamps' is non-nil.
 This string specifies the format of the timestamp being echoed in
 the minibuffer."
-  :group 'erc-stamp
   :type 'string)
 
 (defcustom erc-timestamp-intangible nil
   "Whether the timestamps should be intangible, i.e. prevent the point
 from entering them and instead jump over them."
-  :group 'erc-stamp
   :version "24.5"
   :type 'boolean)
 
@@ -186,35 +175,32 @@ or `erc-send-modify-hook'."
 	(funcall erc-insert-away-timestamp-function
 		 (erc-format-timestamp ct erc-away-timestamp-format)))
       (add-text-properties (point-min) (point-max)
-			   (list 'timestamp ct))
-      (add-text-properties (point-min) (point-max)
+			   ;; It's important for the function to
+			   ;; be different on different entries (bug#22700).
 			   (list 'cursor-sensor-functions
-				 (list #'erc-echo-timestamp))))))
+				 (list (lambda (_window _before dir)
+					 (erc-echo-timestamp dir ct))))))))
 
-(defvar erc-timestamp-last-inserted nil
+(defvar-local erc-timestamp-last-inserted nil
   "Last timestamp inserted into the buffer.")
-(make-variable-buffer-local 'erc-timestamp-last-inserted)
 
-(defvar erc-timestamp-last-inserted-left nil
+(defvar-local erc-timestamp-last-inserted-left nil
   "Last timestamp inserted into the left side of the buffer.
 This is used when `erc-insert-timestamp-function' is set to
 `erc-timestamp-left-and-right'")
-(make-variable-buffer-local 'erc-timestamp-last-inserted-left)
 
-(defvar erc-timestamp-last-inserted-right nil
+(defvar-local erc-timestamp-last-inserted-right nil
   "Last timestamp inserted into the right side of the buffer.
 This is used when `erc-insert-timestamp-function' is set to
 `erc-timestamp-left-and-right'")
-(make-variable-buffer-local 'erc-timestamp-last-inserted-right)
 
 (defcustom erc-timestamp-only-if-changed-flag t
   "Insert timestamp only if its value changed since last insertion.
 If `erc-insert-timestamp-function' is `erc-insert-timestamp-left', a
 string of spaces which is the same size as the timestamp is added to
-the beginning of the line in its place. If you use
+the beginning of the line in its place.  If you use
 `erc-insert-timestamp-right', nothing gets inserted in place of the
 timestamp."
-  :group 'erc-stamp
   :type 'boolean)
 
 (defcustom erc-timestamp-right-column nil
@@ -222,23 +208,17 @@ timestamp."
 if the timestamp is to be printed to the right.  If nil,
 `erc-insert-timestamp-right' will use other means to determine
 the correct column."
-  :group 'erc-stamp
   :type '(choice
 	  (integer :tag "Column number")
 	  (const :tag "Unspecified" nil)))
 
-(defcustom erc-timestamp-use-align-to (and (not (featurep 'xemacs))
-					   (>= emacs-major-version 22)
-					   (eq window-system 'x))
+(defcustom erc-timestamp-use-align-to (eq window-system 'x)
   "If non-nil, use the :align-to display property to align the stamp.
 This gives better results when variable-width characters (like
 Asian language characters and math symbols) precede a timestamp.
-Unfortunately, it only works in Emacs 22 and when using the X
-Window System.
 
 A side effect of enabling this is that there will only be one
 space before a right timestamp in any saved logs."
-  :group 'erc-stamp
   :type 'boolean)
 
 (defun erc-insert-timestamp-left (string)
@@ -360,7 +340,7 @@ Return the empty string if FORMAT is nil."
 	ts)
     ""))
 
-;; This function is used to munge `buffer-invisibility-spec to an
+;; This function is used to munge `buffer-invisibility-spec' to an
 ;; appropriate value. Currently, it only handles timestamps, thus its
 ;; location.  If you add other features which affect invisibility,
 ;; please modify this function and move it to a more appropriate
@@ -403,14 +383,12 @@ enabled when the message was inserted."
 	    (erc-munge-invisibility-spec)))
 	(erc-buffer-list)))
 
-(defun erc-echo-timestamp (window _before dir)
+(defun erc-echo-timestamp (dir stamp)
   "Print timestamp text-property of an IRC message."
   (when (and erc-echo-timestamps (eq 'entered dir))
-    (let* ((now (window-point window))
-	   (stamp (get-text-property now 'timestamp)))
-      (when stamp
-	(message "%s" (format-time-string erc-echo-timestamp-format
-					  stamp))))))
+    (when stamp
+      (message "%s" (format-time-string erc-echo-timestamp-format
+					stamp)))))
 
 (provide 'erc-stamp)
 
@@ -418,6 +396,4 @@ enabled when the message was inserted."
 ;;
 ;; Local Variables:
 ;; generated-autoload-file: "erc-loaddefs.el"
-;; indent-tabs-mode: t
-;; tab-width: 8
 ;; End:

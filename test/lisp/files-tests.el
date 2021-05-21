@@ -1,6 +1,6 @@
 ;;; files-tests.el --- tests for files.el.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2012-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2021 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -20,6 +20,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'ert-x)
 (require 'nadvice)
 (eval-when-compile (require 'cl-lib))
 (require 'bytecomp) ; `byte-compiler-base-file-name'.
@@ -137,7 +138,7 @@ form.")
       (hack-local-variables)
       (eval (nth 2 test-settings)))))
 
-(ert-deftest files-test-local-variables ()
+(ert-deftest files-tests-local-variables ()
   "Test the file-local variables implementation."
   (cl-letf (((symbol-function 'hack-local-variables-confirm)
              (lambda (&rest _)
@@ -150,11 +151,24 @@ form.")
         (dolist (subtest (cdr test))
           (should (file-test--do-local-variables-test str subtest)))))))
 
+(ert-deftest files-tests-permanent-local-variables ()
+  (let ((enable-local-variables nil))
+    (with-temp-buffer
+      (insert ";;; test-test.el --- tests  -*- lexical-binding: t; -*-\n\n")
+      (hack-local-variables)
+      (should (eq lexical-binding t))))
+  (let ((enable-local-variables nil)
+        (permanently-enabled-local-variables nil))
+    (with-temp-buffer
+      (insert ";;; test-test.el --- tests  -*- lexical-binding: t; -*-\n\n")
+      (hack-local-variables)
+      (should (eq lexical-binding nil)))))
+
 (defvar files-test-bug-18141-file
-  (expand-file-name "data/files-bug18141.el.gz" (getenv "EMACS_TEST_DIRECTORY"))
+  (ert-resource-file "files-bug18141.el.gz")
   "Test file for bug#18141.")
 
-(ert-deftest files-test-bug-18141 ()
+(ert-deftest files-tests-bug-18141 ()
   "Test for https://debbugs.gnu.org/18141 ."
   (skip-unless (executable-find "gzip"))
   ;; If called interactively, environment variable
@@ -170,7 +184,7 @@ form.")
 	    (should (eq buffer-file-coding-system 'iso-2022-7bit-unix))))
       (delete-file tempfile))))
 
-(ert-deftest files-test-make-temp-file-empty-prefix ()
+(ert-deftest files-tests-make-temp-file-empty-prefix ()
   "Test make-temp-file with an empty prefix."
   (let ((tempfile (make-temp-file ""))
         (tempdir (make-temp-file "" t))
@@ -188,18 +202,40 @@ form.")
 ;; Stop the above "Local Var..." confusing Emacs.
 
 
-(ert-deftest files-test-bug-21454 ()
+(ert-deftest files-tests-bug-21454 ()
   "Test for https://debbugs.gnu.org/21454 ."
-  :expected-result :failed
   (let ((input-result
-         '(("/foo/bar//baz/:/bar/foo/baz//" nil ("/foo/bar/baz/" "/bar/foo/baz/"))
-           ("/foo/bar/:/bar/qux/:/qux/foo" nil ("/foo/bar/" "/bar/qux/" "/qux/foo/"))
-           ("//foo/bar/:/bar/qux/:/qux/foo/" nil ("/foo/bar/" "/bar/qux/" "/qux/foo/"))
-           ("/foo/bar/:/bar/qux/:/qux/foo/" nil ("/foo/bar/" "/bar/qux/" "/qux/foo/"))
-           ("/foo//bar/:/bar/qux/:/qux/foo/" nil ("/foo/bar/" "/bar/qux/" "/qux/foo/"))
-           ("/foo//bar/:/bar/qux/:/qux/foo" nil ("/foo/bar/" "/bar/qux/" "/qux/foo/"))
-           ("/foo/bar" "$FOO/baz/:/qux/foo/" ("/foo/bar/baz/" "/qux/foo/"))
-           ("//foo/bar/" "$FOO/baz/:/qux/foo/" ("/foo/bar/baz/" "/qux/foo/"))))
+         (if (memq system-type '(windows-nt ms-dos))
+             '(("x:/foo/bar//baz/;y:/bar/foo/baz//" nil
+                ("x:/foo/bar/baz/" "y:/bar/foo/baz/"))
+               ("x:/foo/bar/;y:/bar/qux/;z:/qux/foo" nil
+                ("x:/foo/bar/" "y:/bar/qux/" "z:/qux/foo/"))
+               ("x://foo/bar/;y:/bar/qux/;z:/qux/foo/" nil
+                ("x:/foo/bar/" "y:/bar/qux/" "z:/qux/foo/"))
+               ("x:/foo/bar/;y:/bar/qux/;z:/qux/foo/" nil
+                ("x:/foo/bar/" "y:/bar/qux/" "z:/qux/foo/"))
+               ("x:/foo//bar/;y:/bar/qux/;z:/qux/foo/" nil
+                ("x:/foo/bar/" "y:/bar/qux/" "z:/qux/foo/"))
+               ("x:/foo//bar/;y:/bar/qux/;z:/qux/foo" nil
+                ("x:/foo/bar/" "y:/bar/qux/" "z:/qux/foo/"))
+               ("x:/foo/bar" "$FOO/baz/;z:/qux/foo/"
+                ("x:/foo/bar/baz/" "z:/qux/foo/"))
+               ("x://foo/bar/" "$FOO/baz/;z:/qux/foo/"
+                ("x:/foo/bar/baz/" "z:/qux/foo/")))
+           '(("/foo/bar//baz/:/bar/foo/baz//" nil
+              ("/foo/bar/baz/" "/bar/foo/baz/"))
+             ("/foo/bar/:/bar/qux/:/qux/foo" nil
+              ("/foo/bar/" "/bar/qux/" "/qux/foo/"))
+             ("//foo/bar/:/bar/qux/:/qux/foo/" nil
+              ("/foo/bar/" "/bar/qux/" "/qux/foo/"))
+             ("/foo/bar/:/bar/qux/:/qux/foo/" nil
+              ("/foo/bar/" "/bar/qux/" "/qux/foo/"))
+             ("/foo//bar/:/bar/qux/:/qux/foo/" nil
+              ("/foo/bar/" "/bar/qux/" "/qux/foo/"))
+             ("/foo//bar/:/bar/qux/:/qux/foo" nil
+              ("/foo/bar/" "/bar/qux/" "/qux/foo/"))
+             ("/foo/bar" "$FOO/baz/:/qux/foo/" ("/foo/bar/baz/" "/qux/foo/"))
+             ("//foo/bar/" "$FOO/baz/:/qux/foo/" ("/foo/bar/baz/" "/qux/foo/")))))
         (foo-env (getenv "FOO"))
         (bar-env (getenv "BAR")))
     (unwind-protect
@@ -216,7 +252,7 @@ form.")
       (setenv "FOO" foo-env)
       (setenv "BAR" bar-env))))
 
-(ert-deftest files-test--save-buffers-kill-emacs--confirm-kill-processes ()
+(ert-deftest files-tests-save-buffers-kill-emacs--confirm-kill-processes ()
   "Test that `save-buffers-kill-emacs' honors
 `confirm-kill-processes'."
   (cl-letf* ((yes-or-no-p-prompts nil)
@@ -239,9 +275,9 @@ form.")
     (should-not yes-or-no-p-prompts)
     (should (equal kill-emacs-args '(nil)))))
 
-(ert-deftest files-test-read-file-in-~ ()
-  "Test file prompting in directory named '~'.
-If we are in a directory named '~', the default value should not
+(ert-deftest files-tests-read-file-in-~ ()
+  "Test file prompting in directory named `~'.
+If we are in a directory named `~', the default value should not
 be $HOME."
   (cl-letf (((symbol-function 'completing-read)
              (lambda (_prompt _coll &optional _pred _req init _hist def _)
@@ -278,13 +314,16 @@ be $HOME."
                    (file-name-unquote
                     (file-name-unquote temporary-file-directory))))))
 
-(ert-deftest files-tests--file-name-non-special--subprocess ()
-  "Check that Bug#25949 is fixed."
-  (skip-unless (executable-find "true"))
-  (let ((default-directory (file-name-quote temporary-file-directory)))
-    (should (zerop (process-file "true")))
-    (should (processp (start-file-process "foo" nil "true")))
-    (should (zerop (shell-command "true")))))
+(ert-deftest files-tests-file-name-non-special--subprocess ()
+  "Check that Bug#25949 and Bug#48177 are fixed."
+  (skip-unless (and (executable-find "true") (file-exists-p null-device)))
+  (let ((default-directory (file-name-quote temporary-file-directory))
+        (true (file-name-quote (executable-find "true")))
+        (null (file-name-quote null-device)))
+    (should (zerop (process-file true null `((:file ,null) ,null))))
+    (should (processp (start-file-process "foo" nil true)))
+    (should (zerop (shell-command true)))
+    (should (processp (make-process :name "foo" :command `(,true))))))
 
 (defmacro files-tests--with-advice (symbol where function &rest body)
   (declare (indent 3))
@@ -306,7 +345,7 @@ be $HOME."
          (progn ,@body)
        (delete-file ,name))))
 
-(ert-deftest files-tests--file-name-non-special--buffers ()
+(ert-deftest files-tests-file-name-non-special--buffers ()
   "Check that Bug#25951 is fixed.
 We call `verify-visited-file-modtime' on a buffer visiting a file
 with a quoted name.  We use two different variants: first with
@@ -692,9 +731,8 @@ unquoted file names."
           (file (file-name-nondirectory tmpfile))
           (nospecial-file (file-name-nondirectory nospecial)))
       (should-not (string-equal file nospecial-file))
-      (should-not (equal (file-name-all-completions
-                          nospecial-file nospecial-tempdir)
-                         (file-name-all-completions file tmpdir)))
+      (should (equal (file-name-all-completions nospecial-file nospecial-tempdir)
+                     (file-name-all-completions file tmpdir)))
       (should (equal (file-name-all-completions file nospecial-tempdir)
                      (file-name-all-completions file tmpdir)))
       (should (equal (file-name-all-completions nospecial-file tmpdir)
@@ -736,8 +774,8 @@ unquoted file names."
           (file (file-name-nondirectory tmpfile))
           (nospecial-file (file-name-nondirectory nospecial)))
       (should-not (string-equal file nospecial-file))
-      (should-not (equal (file-name-completion nospecial-file nospecial-tempdir)
-                         (file-name-completion file tmpdir)))
+      (should (equal (file-name-completion nospecial-file nospecial-tempdir)
+                     (file-name-completion file tmpdir)))
       (should (equal (file-name-completion file nospecial-tempdir)
                      (file-name-completion file tmpdir)))
       (should (equal (file-name-completion nospecial-file tmpdir)
@@ -857,10 +895,15 @@ unquoted file names."
                                  (find-backup-file-name tmpfile)))))))
 
 (ert-deftest files-tests-file-name-non-special-get-file-buffer ()
+  ;; Make sure these buffers don't exist.
   (files-tests--with-temp-non-special (tmpfile nospecial)
-    (should-not (get-file-buffer nospecial)))
+    (let ((fbuf (get-file-buffer nospecial)))
+      (if fbuf (kill-buffer fbuf))
+      (should-not (get-file-buffer nospecial))))
   (files-tests--with-temp-non-special-and-file-name-handler (tmpfile nospecial)
-    (should-not (get-file-buffer nospecial))))
+    (let ((fbuf (get-file-buffer nospecial)))
+      (if fbuf (kill-buffer fbuf))
+      (should-not (get-file-buffer nospecial)))))
 
 (ert-deftest files-tests-file-name-non-special-insert-directory ()
   (files-tests--with-temp-non-special (tmpdir nospecial-dir t)
@@ -960,7 +1003,7 @@ unquoted file names."
           (let ((linkname (expand-file-name "link" nospecial-dir)))
             (should-error (make-symbolic-link tmpfile linkname))))))))
 
-;; See `files-tests--file-name-non-special--subprocess'.
+;; See `files-tests-file-name-non-special--subprocess'.
 ;; (ert-deftest files-tests-file-name-non-special-process-file ())
 
 (ert-deftest files-tests-file-name-non-special-rename-file ()
@@ -1003,9 +1046,9 @@ unquoted file names."
 
 (ert-deftest files-tests-file-name-non-special-set-file-times ()
   (files-tests--with-temp-non-special (tmpfile nospecial)
-    (set-file-times nospecial))
+    (set-file-times nospecial nil 'nofollow))
   (files-tests--with-temp-non-special-and-file-name-handler (tmpfile nospecial)
-    (should-error (set-file-times nospecial))))
+    (should-error (set-file-times nospecial nil 'nofollow))))
 
 (ert-deftest files-tests-file-name-non-special-set-visited-file-modtime ()
   (files-tests--with-temp-non-special (tmpfile nospecial)
@@ -1052,7 +1095,13 @@ unquoted file names."
           (should (search-forward emacs-version nil t))
           ;; Don't stop the test run with a query, as the subprocess
           ;; may or may not be dead by the time we reach here.
-          (set-process-query-on-exit-flag proc nil)))))
+          (set-process-query-on-exit-flag proc nil)
+          ;; On MS-Windows, wait for the process to die, since the OS
+          ;; will not let us delete a directory that is the cwd of a
+          ;; running process.
+          (when (eq system-type 'windows-nt)
+            (while (process-live-p proc)
+              (sleep-for 0.1)))))))
   (files-tests--with-temp-non-special-and-file-name-handler
       (tmpdir nospecial-dir t)
     (with-temp-buffer
@@ -1098,7 +1147,7 @@ unquoted file names."
   (files-tests--with-temp-non-special-and-file-name-handler (tmpfile nospecial)
     (should (equal (vc-registered nospecial) (vc-registered tmpfile)))))
 
-;; See test `files-tests--file-name-non-special--buffers'.
+;; See test `files-tests-file-name-non-special--buffers'.
 ;; (ert-deftest files-tests-file-name-non-special-verify-visited-file-modtime ())
 
 (ert-deftest files-tests-file-name-non-special-write-region ()
@@ -1119,7 +1168,7 @@ works as expected if the default directory is quoted."
                                     :command (list program "--version")
                                     :file-handler t)))))
 
-(ert-deftest files-tests--insert-directory-wildcard-in-dir-p ()
+(ert-deftest files-tests-insert-directory-wildcard-in-dir-p ()
   (let ((alist (list (cons "/home/user/*/.txt" (cons "/home/user/" "*/.txt"))
                      (cons "/home/user/.txt" nil)
                      (cons "/home/*/.txt" (cons "/home/" "*/.txt"))
@@ -1136,7 +1185,7 @@ works as expected if the default directory is quoted."
         (cdr path-res)
         (insert-directory-wildcard-in-dir-p (car path-res)))))))
 
-(ert-deftest files-tests--make-directory ()
+(ert-deftest files-tests-make-directory ()
   (let* ((dir (make-temp-file "files-mkdir-test" t))
 	 (dirname (file-name-as-directory dir))
 	 (file (concat dirname "file"))
@@ -1158,7 +1207,43 @@ works as expected if the default directory is quoted."
     (should-not (make-directory a/b t))
     (delete-directory dir 'recursive)))
 
-(ert-deftest files-test-no-file-write-contents ()
+(ert-deftest files-tests-file-modes-symbolic-to-number ()
+  (let ((alist (list (cons "a=rwx" #o777)
+                     (cons "o=t" #o1000)
+                     (cons "o=xt" #o1001)
+                     (cons "o=tx" #o1001) ; Order doesn't matter.
+                     (cons "u=rwx,g=rx,o=rx" #o755)
+                     (cons "u=rwx,g=,o=" #o700)
+                     (cons "u=rwx" #o700) ; Empty permissions can be ignored.
+                     (cons "u=rw,g=r,o=r" #o644)
+                     (cons "u=rw,g=r,o=t" #o1640)
+                     (cons "u=rw,g=r,o=xt" #o1641)
+                     (cons "u=rwxs,g=rs,o=xt" #o7741)
+                     (cons "u=rws,g=rs,o=t" #o7640)
+                     (cons "u=rws,g=rs,o=r" #o6644)
+                     (cons "a=r" #o444)
+                     (cons "u=S" nil)
+                     (cons "u=T" nil)
+                     (cons "u=Z" nil))))
+    (dolist (x alist)
+      (if (cdr-safe x)
+          (should (equal (cdr x) (file-modes-symbolic-to-number (car x))))
+        (should-error (file-modes-symbolic-to-number (car x)))))))
+
+(ert-deftest files-tests-file-modes-number-to-symbolic ()
+  (let ((alist (list (cons #o755 "-rwxr-xr-x")
+                     (cons #o700 "-rwx------")
+                     (cons #o644 "-rw-r--r--")
+                     (cons #o1640 "-rw-r----T")
+                     (cons #o1641 "-rw-r----t")
+                     (cons #o7741 "-rwsr-S--t")
+                     (cons #o7640 "-rwSr-S--T")
+                     (cons #o6644 "-rwSr-Sr--")
+                     (cons #o444 "-r--r--r--"))))
+    (dolist (x alist)
+      (should (equal (cdr x) (file-modes-number-to-symbolic (car x)))))))
+
+(ert-deftest files-tests-no-file-write-contents ()
   "Test that `write-contents-functions' permits saving a file.
 Usually `basic-save-buffer' will prompt for a file name if the
 current buffer has none.  It should first call the functions in
@@ -1187,7 +1272,7 @@ name (Bug#28412)."
         (should (null (save-buffer)))
         (should (eq (buffer-size) 1))))))
 
-(ert-deftest files-tests--copy-directory ()
+(ert-deftest files-tests-copy-directory ()
   (let* ((dir (make-temp-file "files-mkdir-test" t))
 	 (dirname (file-name-as-directory dir))
 	 (source (concat dirname "source"))
@@ -1204,7 +1289,7 @@ name (Bug#28412)."
     (should (file-directory-p (concat (file-name-as-directory dest2) "a")))
     (delete-directory dir 'recursive)))
 
-(ert-deftest files-test-abbreviated-home-dir ()
+(ert-deftest files-tests-abbreviated-home-dir ()
   "Test that changing HOME does not confuse `abbreviate-file-name'.
 See <https://debbugs.gnu.org/19657#20>."
   (let* ((homedir temporary-file-directory)
@@ -1217,6 +1302,181 @@ See <https://debbugs.gnu.org/19657#20>."
                                             (expand-file-name "bar" homedir))
                                     process-environment)))
     (should (equal old (file-truename (abbreviate-file-name testfile))))))
+
+(ert-deftest files-tests-executable-find ()
+  "Test that `executable-find' works also with a relative or remote PATH.
+See <https://debbugs.gnu.org/35241>."
+  (let ((tmpfile (make-temp-file "files-test" nil (car exec-suffixes))))
+    (unwind-protect
+        (progn
+          (set-file-modes tmpfile #o777)
+          (let ((exec-path `(,temporary-file-directory)))
+            (should
+             (equal tmpfile
+                    (executable-find (file-name-nondirectory tmpfile)))))
+          ;; An empty element of `exec-path' means `default-directory'.
+          (let ((default-directory temporary-file-directory)
+                (exec-path nil))
+            (should
+             (equal tmpfile
+                    (executable-find (file-name-nondirectory tmpfile)))))
+          ;; The remote file name shall be quoted, and handled like a
+          ;; non-existing directory.
+          (let ((default-directory "/ssh::")
+                (exec-path (append exec-path `("." ,temporary-file-directory))))
+            (should
+             (equal tmpfile
+                    (executable-find (file-name-nondirectory tmpfile))))))
+      (delete-file tmpfile))))
+
+(ert-deftest files-tests-dont-rewrite-precious-files ()
+  "Test that `file-precious-flag' forces files to be saved by
+renaming only, rather than modified in-place."
+  (let* ((temp-file-name (make-temp-file "files-tests"))
+         (advice (lambda (_start _end filename &rest _r)
+                   (should-not (string= filename temp-file-name)))))
+    (unwind-protect
+        (with-current-buffer (find-file-noselect temp-file-name)
+          (advice-add #'write-region :before advice)
+          (setq-local file-precious-flag t)
+          (insert "foobar")
+          (should (null (save-buffer))))
+      (ignore-errors (advice-remove #'write-region advice))
+      (ignore-errors (delete-file temp-file-name)))))
+
+(ert-deftest files-test-file-size-human-readable ()
+  (should (equal (file-size-human-readable 13) "13"))
+  (should (equal (file-size-human-readable 13 'si) "13"))
+  (should (equal (file-size-human-readable 13 'iec) "13B"))
+  (should (equal (file-size-human-readable 10000) "9.8k"))
+  (should (equal (file-size-human-readable 10000 'si) "10k"))
+  (should (equal (file-size-human-readable 10000 'iec) "9.8KiB"))
+  (should (equal (file-size-human-readable 4294967296 nil) "4G"))
+  (should (equal (file-size-human-readable 4294967296 'si) "4.3G"))
+  (should (equal (file-size-human-readable 4294967296 'iec) "4GiB"))
+  (should (equal (file-size-human-readable 13 nil " ") "13"))
+  (should (equal (file-size-human-readable 13 'si " ") "13"))
+  (should (equal (file-size-human-readable 13 'iec " ") "13 B"))
+  (should (equal (file-size-human-readable 10000 nil " ") "9.8 k"))
+  (should (equal (file-size-human-readable 10000 'si " ") "10 k"))
+  (should (equal (file-size-human-readable 10000 'iec " ") "9.8 KiB"))
+  (should (equal (file-size-human-readable 4294967296 nil " ") "4 G"))
+  (should (equal (file-size-human-readable 4294967296 'si " ") "4.3 G"))
+  (should (equal (file-size-human-readable 4294967296 'iec " ") "4 GiB"))
+  (should (equal (file-size-human-readable 10000 nil " " "bit") "9.8 kbit"))
+  (should (equal (file-size-human-readable 10000 'si " " "bit") "10 kbit"))
+  (should (equal (file-size-human-readable 10000 'iec " " "bit") "9.8 Kibit"))
+
+  (should (equal (file-size-human-readable 2048) "2k"))
+  (should (equal (file-size-human-readable 2046) "2k"))
+  (should (equal (file-size-human-readable 2050) "2k"))
+  (should (equal (file-size-human-readable 1950) "1.9k"))
+  (should (equal (file-size-human-readable 2100) "2.1k"))
+
+  (should (equal (file-size-human-readable-iec 0) "0 B"))
+  (should (equal (file-size-human-readable-iec 1) "1 B"))
+  (should (equal (file-size-human-readable-iec 9621) "9.4 KiB"))
+  (should (equal (file-size-human-readable-iec 72528034765) "67.5 GiB")))
+
+(ert-deftest files-test-magic-mode-alist-re-baseline ()
+  "Test magic-mode-alist with RE, expected behavior for match."
+  (let ((magic-mode-alist '(("my-tag" . text-mode))))
+    (with-temp-buffer
+      (insert "my-tag")
+      (normal-mode)
+      (should (eq major-mode 'text-mode)))))
+
+(ert-deftest files-test-magic-mode-alist-re-no-match ()
+  "Test magic-mode-alist with RE, expected behavior for no match."
+  (let ((magic-mode-alist '(("my-tag" . text-mode))))
+    (with-temp-buffer
+      (insert "not-my-tag")
+      (normal-mode)
+      (should (not (eq major-mode 'text-mode))))))
+
+(ert-deftest files-test-magic-mode-alist-re-case-diff ()
+  "Test that regexps in magic-mode-alist are case-sensitive.
+See <https://debbugs.gnu.org/36401>."
+  (let ((case-fold-search t)
+        (magic-mode-alist '(("my-tag" . text-mode))))
+    (with-temp-buffer
+      (goto-char (point-min))
+      (insert "My-Tag")
+      (normal-mode)
+      (should (not (eq major-mode 'text-mode))))))
+
+(ert-deftest files-colon-path ()
+  (if (memq system-type '(windows-nt ms-dos))
+      (should (equal (parse-colon-path "x:/foo//bar/baz")
+                     '("x:/foo/bar/baz/")))
+    (should (equal (parse-colon-path "/foo//bar/baz")
+                 '("/foo/bar/baz/")))))
+
+(ert-deftest files-test-magic-mode-alist-doctype ()
+  "Test that DOCTYPE and variants put files in mhtml-mode."
+  (with-temp-buffer
+    (goto-char (point-min))
+    (insert "<!DOCTYPE html>")
+    (normal-mode)
+    (should (eq major-mode 'mhtml-mode))
+    (erase-buffer)
+    (insert "<!doctype html>")
+    (normal-mode)
+    (should (eq major-mode 'mhtml-mode))))
+
+(defvar files-tests-lao "The Way that can be told of is not the eternal Way;
+The name that can be named is not the eternal name.
+The Nameless is the origin of Heaven and Earth;
+The Named is the mother of all things.
+Therefore let there always be non-being,
+  so we may see their subtlety,
+And let there always be being,
+  so we may see their outcome.
+The two are the same,
+But after they are produced,
+  they have different names.
+")
+
+(defvar files-tests-tzu "The Nameless is the origin of Heaven and Earth;
+The named is the mother of all things.
+
+Therefore let there always be non-being,
+  so we may see their subtlety,
+And let there always be being,
+  so we may see their outcome.
+The two are the same,
+But after they are produced,
+  they have different names.
+They both may be called deep and profound.
+Deeper and more profound,
+The door of all subtleties!
+")
+
+(ert-deftest files-tests-revert-buffer ()
+  "Test that revert-buffer is successful."
+  (files-tests--with-temp-file temp-file-name
+    (with-temp-buffer
+      (insert files-tests-lao)
+      (write-file temp-file-name)
+      (erase-buffer)
+      (insert files-tests-tzu)
+      (revert-buffer t t t)
+      (should (compare-strings files-tests-lao nil nil
+                               (buffer-substring (point-min) (point-max))
+                               nil nil)))))
+
+(ert-deftest files-tests-revert-buffer-with-fine-grain ()
+  "Test that revert-buffer-with-fine-grain is successful."
+  (files-tests--with-temp-file temp-file-name
+    (with-temp-buffer
+      (insert files-tests-lao)
+      (write-file temp-file-name)
+      (erase-buffer)
+      (insert files-tests-tzu)
+      (should (revert-buffer-with-fine-grain t t))
+      (should (compare-strings files-tests-lao nil nil
+                               (buffer-substring (point-min) (point-max))
+                               nil nil)))))
 
 (provide 'files-tests)
 ;;; files-tests.el ends here

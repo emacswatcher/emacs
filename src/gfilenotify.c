@@ -1,5 +1,5 @@
 /* Filesystem notifications support with glib API.
-   Copyright (C) 2013-2019 Free Software Foundation, Inc.
+   Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -18,8 +18,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <config.h>
 
-#ifdef HAVE_GFILENOTIFY
-#include <stdio.h>
 #include <gio/gio.h>
 #include "lisp.h"
 #include "coding.h"
@@ -333,7 +331,4 @@ syms_of_gfilenotify (void)
   staticpro (&watch_list);
 
   Fprovide (intern_c_string ("gfilenotify"), Qnil);
-
 }
-
-#endif /* HAVE_GFILENOTIFY  */

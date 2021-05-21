@@ -1,6 +1,6 @@
 ;;; rcirc.el --- default, simple IRC client          -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2005-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2021 Free Software Foundation, Inc.
 
 ;; Author: Ryan Yeske <rcyeske@gmail.com>
 ;; Maintainers: Ryan Yeske <rcyeske@gmail.com>,
@@ -39,13 +39,14 @@
 ;; Open a new irc connection with:
 ;; M-x irc RET
 
-;;; Todo:
-
 ;;; Code:
 
 (require 'cl-lib)
 (require 'ring)
 (require 'time-date)
+(eval-when-compile (require 'subr-x))
+
+(defconst rcirc-id-string (concat "rcirc on GNU Emacs " emacs-version))
 
 (defgroup rcirc nil
   "Simple IRC client."
@@ -55,7 +56,7 @@
   :group 'applications)
 
 (defcustom rcirc-server-alist
-  '(("irc.freenode.net" :channels ("#rcirc")
+  '(("chat.freenode.net" :channels ("#rcirc")
      ;; Don't use the TLS port by default, in case gnutls is not available.
      ;; :port 7000 :encryption tls
      ))
@@ -119,35 +120,39 @@ display purposes. If absent, the real server name will be displayed instead."
                                     (:channels (repeat string))
                                     (:encryption (choice (const tls)
                                                          (const plain)))
-                                    (:server-alias string))))
-  :group 'rcirc)
+                                    (:server-alias string)))))
 
 (defcustom rcirc-default-port 6667
   "The default port to connect to."
-  :type 'integer
-  :group 'rcirc)
+  :type 'integer)
 
 (defcustom rcirc-default-nick (user-login-name)
   "Your nick."
-  :type 'string
-  :group 'rcirc)
+  :type 'string)
 
 (defcustom rcirc-default-user-name "user"
   "Your user name sent to the server when connecting."
   :version "24.1"                       ; changed default
-  :type 'string
-  :group 'rcirc)
+  :type 'string)
 
 (defcustom rcirc-default-full-name "unknown"
   "The full name sent to the server when connecting."
   :version "24.1"                       ; changed default
-  :type 'string
-  :group 'rcirc)
+  :type 'string)
+
+(defcustom rcirc-default-part-reason rcirc-id-string
+  "The default reason to send when parting from a channel.
+Used when no reason is explicitly given."
+  :type 'string)
+
+(defcustom rcirc-default-quit-reason rcirc-id-string
+  "The default reason to send when quitting a server.
+Used when no reason is explicitly given."
+  :type 'string)
 
 (defcustom rcirc-fill-flag t
   "Non-nil means line-wrap messages printed in channel buffers."
-  :type 'boolean
-  :group 'rcirc)
+  :type 'boolean)
 
 (defcustom rcirc-fill-column nil
   "Column beyond which automatic line-wrapping should happen.
@@ -157,38 +162,32 @@ call it to compute the number of columns."
   :risky t                              ; can get funcalled
   :type '(choice (const :tag "Value of `fill-column'" nil)
 		 (integer :tag "Number of columns")
-		 (function :tag "Function returning the number of columns"))
-  :group 'rcirc)
+                 (function :tag "Function returning the number of columns")))
 
 (defcustom rcirc-fill-prefix nil
   "Text to insert before filled lines.
 If nil, calculate the prefix dynamically to line up text
 underneath each nick."
   :type '(choice (const :tag "Dynamic" nil)
-		 (string :tag "Prefix text"))
-  :group 'rcirc)
+		 (string :tag "Prefix text")))
 
 (defcustom rcirc-url-max-length nil
   "Maximum number of characters in displayed URLs.
 If nil, no maximum is applied."
   :version "27.1"
   :type '(choice (const :tag "No maximum" nil)
-                 (integer :tag "Number of characters"))
-  :group 'rcirc)
+                 (integer :tag "Number of characters")))
 
-(defvar rcirc-ignore-buffer-activity-flag nil
+(defvar-local rcirc-ignore-buffer-activity-flag nil
   "If non-nil, ignore activity in this buffer.")
-(make-variable-buffer-local 'rcirc-ignore-buffer-activity-flag)
 
-(defvar rcirc-low-priority-flag nil
+(defvar-local rcirc-low-priority-flag nil
   "If non-nil, activity in this buffer is considered low priority.")
-(make-variable-buffer-local 'rcirc-low-priority-flag)
 
 (defcustom rcirc-omit-responses
   '("JOIN" "PART" "QUIT" "NICK")
   "Responses which will be hidden when `rcirc-omit-mode' is enabled."
-  :type '(repeat string)
-  :group 'rcirc)
+  :type '(repeat string))
 
 (defvar rcirc-prompt-start-marker nil)
 
@@ -197,7 +196,7 @@ If nil, no maximum is applied."
 
 Uninteresting lines are those whose responses are listed in
 `rcirc-omit-responses'."
-  nil " Omit" nil
+  :lighter " Omit"
   (if rcirc-omit-mode
       (progn
 	(add-to-invisibility-spec '(rcirc-omit . nil))
@@ -211,32 +210,27 @@ Uninteresting lines are those whose responses are listed in
 (defcustom rcirc-time-format "%H:%M "
   "Describes how timestamps are printed.
 Used as the first arg to `format-time-string'."
-  :type 'string
-  :group 'rcirc)
+  :type 'string)
 
 (defcustom rcirc-input-ring-size 1024
   "Size of input history ring."
-  :type 'integer
-  :group 'rcirc)
+  :type 'integer)
 
 (defcustom rcirc-read-only-flag t
   "Non-nil means make text in IRC buffers read-only."
-  :type 'boolean
-  :group 'rcirc)
+  :type 'boolean)
 
 (defcustom rcirc-buffer-maximum-lines nil
   "The maximum size in lines for rcirc buffers.
 Channel buffers are truncated from the top to be no greater than this
 number.  If zero or nil, no truncating is done."
   :type '(choice (const :tag "No truncation" nil)
-		 (integer :tag "Number of lines"))
-  :group 'rcirc)
+                 (integer :tag "Number of lines")))
 
 (defcustom rcirc-scroll-show-maximum-output t
   "If non-nil, scroll buffer to keep the point at the bottom of
 the window."
-  :type 'boolean
-  :group 'rcirc)
+  :type 'boolean)
 
 (defcustom rcirc-authinfo nil
   "List of authentication passwords.
@@ -258,7 +252,7 @@ Examples:
   (\"bitlbee\" bitlbee \"robert\" \"sekrit\")
   (\"dal.net\" nickserv \"bob\" \"sekrit\" \"NickServ@services.dal.net\")
   (\"quakenet.org\" quakenet \"bobby\" \"sekrit\"))"
-  :type '(alist :key-type (string :tag "Server")
+  :type '(alist :key-type (regexp :tag "Server")
 		:value-type (choice (list :tag "NickServ"
 					  (const nickserv)
 					  (string :tag "Nick")
@@ -275,21 +269,18 @@ Examples:
                                     (list :tag "QuakeNet"
                                           (const quakenet)
                                           (string :tag "Account")
-                                          (string :tag "Password"))))
-  :group 'rcirc)
+                                          (string :tag "Password")))))
 
 (defcustom rcirc-auto-authenticate-flag t
   "Non-nil means automatically send authentication string to server.
 See also `rcirc-authinfo'."
-  :type 'boolean
-  :group 'rcirc)
+  :type 'boolean)
 
 (defcustom rcirc-authenticate-before-join t
   "Non-nil means authenticate to services before joining channels.
 Currently only works with NickServ on some networks."
   :version "24.1"
-  :type 'boolean
-  :group 'rcirc)
+  :type 'boolean)
 
 (defcustom rcirc-prompt "> "
   "Prompt string to use in IRC buffers.
@@ -302,20 +293,17 @@ The following replacements are made:
 Setting this alone will not affect the prompt;
 use either M-x customize or also call `rcirc-update-prompt'."
   :type 'string
-  :set 'rcirc-set-changed
-  :initialize 'custom-initialize-default
-  :group 'rcirc)
+  :set #'rcirc-set-changed
+  :initialize 'custom-initialize-default)
 
 (defcustom rcirc-keywords nil
   "List of keywords to highlight in message text."
-  :type '(repeat string)
-  :group 'rcirc)
+  :type '(repeat string))
 
 (defcustom rcirc-ignore-list ()
   "List of ignored nicks.
 Use /ignore to list them, use /ignore NICK to add or remove a nick."
-  :type '(repeat string)
-  :group 'rcirc)
+  :type '(repeat string))
 
 (defvar rcirc-ignore-list-automatic ()
   "List of ignored nicks added to `rcirc-ignore-list' because of renaming.
@@ -326,42 +314,37 @@ parts.")
 (defcustom rcirc-bright-nicks nil
   "List of nicks to be emphasized.
 See `rcirc-bright-nick' face."
-  :type '(repeat string)
-  :group 'rcirc)
+  :type '(repeat string))
 
 (defcustom rcirc-dim-nicks nil
   "List of nicks to be deemphasized.
 See `rcirc-dim-nick' face."
-  :type '(repeat string)
-  :group 'rcirc)
+  :type '(repeat string))
 
 (define-obsolete-variable-alias 'rcirc-print-hooks
   'rcirc-print-functions "24.3")
 (defcustom rcirc-print-functions nil
   "Hook run after text is printed.
 Called with 5 arguments, PROCESS, SENDER, RESPONSE, TARGET and TEXT."
-  :type 'hook
-  :group 'rcirc)
+  :type 'hook)
 
 (defvar rcirc-authenticated-hook nil
-  "Hook run after successfully authenticated.")
+  "Hook run after successfully authenticated.
+Functions in this hook are called with a single argument PROCESS.")
 
 (defcustom rcirc-always-use-server-buffer-flag nil
   "Non-nil means messages without a channel target will go to the server buffer."
-  :type 'boolean
-  :group 'rcirc)
+  :type 'boolean)
 
 (defcustom rcirc-decode-coding-system 'utf-8
   "Coding system used to decode incoming irc messages.
 Set to `undecided' if you want the encoding of the incoming
 messages autodetected."
-  :type 'coding-system
-  :group 'rcirc)
+  :type 'coding-system)
 
 (defcustom rcirc-encode-coding-system 'utf-8
   "Coding system used to encode outgoing irc messages."
-  :type 'coding-system
-  :group 'rcirc)
+  :type 'coding-system)
 
 (defcustom rcirc-coding-system-alist nil
   "Alist to decide a coding system to use for a channel I/O operation.
@@ -375,18 +358,16 @@ If VAL is a coding system, it is used for both decoding and encoding
 messages.
 If VAL is a cons of coding systems, the car part is used for decoding,
 and the cdr part is used for encoding."
-  :type '(alist :key-type (choice (string :tag "Channel Regexp")
-					  (cons (string :tag "Channel Regexp")
-						(string :tag "Server Regexp")))
+  :type '(alist :key-type (choice (regexp :tag "Channel Regexp")
+					  (cons (regexp :tag "Channel Regexp")
+						(regexp :tag "Server Regexp")))
 		:value-type (choice coding-system
 				    (cons (coding-system :tag "Decode")
-					  (coding-system :tag "Encode"))))
-  :group 'rcirc)
+                                          (coding-system :tag "Encode")))))
 
 (defcustom rcirc-multiline-major-mode 'fundamental-mode
   "Major-mode function to use in multiline edit buffers."
-  :type 'function
-  :group 'rcirc)
+  :type 'function)
 
 (defcustom rcirc-nick-completion-format "%s: "
   "Format string to use in nick completions.
@@ -395,16 +376,14 @@ The format string is only used when completing at the beginning
 of a line.  The string is passed as the first argument to
 `format' with the nickname as the second argument."
   :version "24.1"
-  :type 'string
-  :group 'rcirc)
+  :type 'string)
 
 (defcustom rcirc-kill-channel-buffers nil
   "When non-nil, kill channel buffers when the server buffer is killed.
 Only the channel buffers associated with the server in question
 will be killed."
   :version "24.3"
-  :type 'boolean
-  :group 'rcirc)
+  :type 'boolean)
 
 (defvar rcirc-nick nil)
 
@@ -436,6 +415,9 @@ will be killed."
 (defvar rcirc-server-buffer nil
   "The server buffer associated with this channel buffer.")
 
+(defvar rcirc-server-parameters nil
+  "List of parameters received from the server.")
+
 (defvar rcirc-target nil
   "The channel or user associated with this buffer.")
 
@@ -446,7 +428,6 @@ will be killed."
 (defvar rcirc-timeout-seconds 600
   "Kill connection after this many seconds if there is no activity.")
 
-(defconst rcirc-id-string (concat "rcirc on GNU Emacs " emacs-version))
 
 (defvar rcirc-startup-channels nil)
 
@@ -607,6 +588,7 @@ If ARG is non-nil, instead prompt for connection parameters."
       (setq-local rcirc-user-disconnect nil)
       (setq-local rcirc-user-authenticated nil)
       (setq-local rcirc-connecting t)
+      (setq-local rcirc-server-parameters nil)
 
       (add-hook 'auto-save-hook 'rcirc-log-write)
 
@@ -642,13 +624,12 @@ If ARG is non-nil, instead prompt for connection parameters."
 (defun rcirc-prompt-for-encryption (server-plist)
   "Prompt the user for the encryption method to use.
 SERVER-PLIST is the property list for the server."
-  (let ((msg "Encryption (default %s): ")
-        (choices '("plain" "tls"))
+  (let ((choices '("plain" "tls"))
         (default (or (plist-get server-plist :encryption)
-                     'plain)))
+                     "plain")))
     (intern
-     (completing-read (format msg default)
-                      choices nil t nil nil (symbol-name default)))))
+     (completing-read (format-prompt "Encryption" default)
+                      choices nil t nil nil default))))
 
 (defun rcirc-keepalive ()
   "Send keep alive pings to active rcirc processes.
@@ -679,16 +660,24 @@ last ping."
   "If non-nil, write information to `rcirc-debug-buffer'.")
 (defun rcirc-debug (process text)
   "Add an entry to the debug log including PROCESS and TEXT.
-Debug text is written to `rcirc-debug-buffer' if `rcirc-debug-flag'
-is non-nil."
+Debug text is appended to `rcirc-debug-buffer' if `rcirc-debug-flag'
+is non-nil.
+
+For convenience, the read-only state of the debug buffer is ignored.
+When the point is at the end of the visible portion of the buffer, it
+is moved to after the text inserted.  Otherwise the point is not moved."
   (when rcirc-debug-flag
     (with-current-buffer (get-buffer-create rcirc-debug-buffer)
-      (goto-char (point-max))
-      (insert (concat
-	       "["
-	       (format-time-string "%Y-%m-%dT%T ") (process-name process)
-	       "] "
-	       text)))))
+      (let ((old (point-marker)))
+        (set-marker-insertion-type old t)
+        (goto-char (point-max))
+        (let ((inhibit-read-only t))
+          (terpri (current-buffer) t)
+          (insert "["
+                  (format-time-string "%FT%T ") (process-name process)
+                  "] "
+                  text))
+        (goto-char old)))))
 
 (define-obsolete-variable-alias 'rcirc-sentinel-hooks
   'rcirc-sentinel-functions "24.3")
@@ -700,8 +689,7 @@ Functions are called with PROCESS and SENTINEL arguments.")
   "The minimum interval in seconds between reconnect attempts.
 When 0, do not auto-reconnect."
   :version "25.1"
-  :type 'integer
-  :group 'rcirc)
+  :type 'integer)
 
 (defvar rcirc-last-connect-time nil
   "The last time the buffer was connected.")
@@ -790,22 +778,33 @@ Function is called with PROCESS, COMMAND, SENDER, ARGS and LINE.")
     (rcirc-process-server-response-1 process text)))
 
 (defun rcirc-process-server-response-1 (process text)
-  (if (string-match "^\\(:\\([^ ]+\\) \\)?\\([^ ]+\\) \\(.+\\)$" text)
+  ;; See https://tools.ietf.org/html/rfc2812#section-2.3.1.  We're a
+  ;; bit more accepting than the RFC: We allow any non-space
+  ;; characters in the command name, multiple spaces between
+  ;; arguments, and allow the last argument to omit the leading ":",
+  ;; even if there are less than 15 arguments.
+  (if (string-match "^\\(:\\([^ ]+\\) \\)?\\([^ ]+\\)" text)
       (let* ((user (match-string 2 text))
 	     (sender (rcirc-user-nick user))
              (cmd (match-string 3 text))
-             (args (match-string 4 text))
+             (cmd-end (match-end 3))
+             (args nil)
              (handler (intern-soft (concat "rcirc-handler-" cmd))))
-        (string-match "^\\([^:]*\\):?\\(.+\\)?$" args)
-        (let* ((args1 (match-string 1 args))
-               (args2 (match-string 2 args))
-               (args (delq nil (append (split-string args1 " " t)
-				       (list args2)))))
+        (cl-loop with i = cmd-end
+                 repeat 14
+                 while (eql i (string-match " +\\([^: ][^ ]*\\)" text i))
+                 do (progn (push (match-string 1 text) args)
+                           (setq i (match-end 0)))
+                 finally
+                 (progn (if (eql i (string-match " +:?" text i))
+                            (push (substring text (match-end 0)) args)
+                          (cl-assert (= i (length text))))
+                        (cl-callf nreverse args)))
         (if (not (fboundp handler))
             (rcirc-handler-generic process cmd sender args text)
           (funcall handler process sender args text))
         (run-hook-with-args 'rcirc-receive-message-functions
-                            process cmd sender args text)))
+                            process cmd sender args text))
     (message "UNHANDLED: %s" text)))
 
 (defvar rcirc-responses-no-activity '("305" "306")
@@ -831,6 +830,7 @@ Function is called with PROCESS, COMMAND, SENDER, ARGS and LINE.")
     (process-send-string process string)))
 
 (defun rcirc-send-privmsg (process target string)
+  (cl-check-type target string)
   (rcirc-send-string process (format "PRIVMSG %s :%s" target string)))
 
 (defun rcirc-send-ctcp (process target request &optional args)
@@ -1166,16 +1166,15 @@ If ALL is non-nil, update prompts in all IRC buffers."
        (or (eq (aref target 0) ?#)
            (eq (aref target 0) ?&))))
 
-(defcustom rcirc-log-directory "~/.emacs.d/rcirc-log"
+(defcustom rcirc-log-directory (locate-user-emacs-file "rcirc-log")
   "Directory to keep IRC logfiles."
   :type 'directory
-  :group 'rcirc)
+  :version "28.1")
 
 (defcustom rcirc-log-flag nil
   "Non-nil means log IRC activity to disk.
 Logfiles are kept in `rcirc-log-directory'."
-  :type 'boolean
-  :group 'rcirc)
+  :type 'boolean)
 
 (defun rcirc-kill-buffer-hook ()
   "Part the channel when killing an rcirc buffer.
@@ -1188,6 +1187,8 @@ with it."
                rcirc-log-directory)
       (rcirc-log-write))
     (rcirc-clean-up-buffer "Killed buffer")
+    (when-let ((process (get-buffer-process (current-buffer))))
+      (delete-process process))
     (when (and rcirc-buffer-alist ;; it's a server buffer
                rcirc-kill-channel-buffers)
       (dolist (channel rcirc-buffer-alist)
@@ -1327,8 +1328,7 @@ Create the buffer if it doesn't exist."
 	  (rcirc-send-string process
 			     (concat command " :" args)))))))
 
-(defvar rcirc-parent-buffer nil)
-(make-variable-buffer-local 'rcirc-parent-buffer)
+(defvar-local rcirc-parent-buffer nil)
 (put 'rcirc-parent-buffer 'permanent-local t)
 (defvar rcirc-window-configuration nil)
 (defun rcirc-edit-multiline ()
@@ -1360,11 +1360,8 @@ Create the buffer if it doesn't exist."
 
 (define-minor-mode rcirc-multiline-minor-mode
   "Minor mode for editing multiple lines in rcirc."
-  :init-value nil
   :lighter " rcirc-mline"
-  :keymap rcirc-multiline-minor-mode-map
   :global nil
-  :group 'rcirc
   (setq fill-column rcirc-max-message-length))
 
 (defun rcirc-multiline-minor-submit ()
@@ -1426,8 +1423,7 @@ the of the following escape sequences replaced by the described values:
   %%        A literal `%' character"
   :type '(alist :key-type (choice (string :tag "Type")
 				  (const :tag "Default" t))
-		:value-type string)
-  :group 'rcirc)
+                :value-type string))
 
 (defun rcirc-format-response-string (process sender response target text)
   "Return a nicely-formatted response string, incorporating TEXT
@@ -1502,19 +1498,15 @@ is found by looking up RESPONSE in `rcirc-response-formats'."
 	  ((or (rcirc-get-buffer process target)
 	       (rcirc-any-buffer process))))))
 
-(defvar rcirc-activity-types nil)
-(make-variable-buffer-local 'rcirc-activity-types)
-(defvar rcirc-last-sender nil)
-(make-variable-buffer-local 'rcirc-last-sender)
+(defvar-local rcirc-activity-types nil)
+(defvar-local rcirc-last-sender nil)
 
 (defcustom rcirc-omit-threshold 100
-  "Number of lines since last activity from a nick before `rcirc-omit-responses' are omitted."
-  :type 'integer
-  :group 'rcirc)
+  "Lines since last activity from a nick before `rcirc-omit-responses' are omitted."
+  :type 'integer)
 
 (defcustom rcirc-log-process-buffers nil
   "Non-nil if rcirc process buffers should be logged to disk."
-  :group 'rcirc
   :type 'boolean
   :version "24.1")
 
@@ -1707,7 +1699,6 @@ is put into `rcirc-log-directory'.
 
 The filename is then cleaned using `convert-standard-filename' to
 guarantee valid filenames for the current OS."
-  :group 'rcirc
   :type 'function)
 
 (defun rcirc-log (process sender response target text)
@@ -1871,11 +1862,7 @@ This function does not alter the INPUT string."
 ;;;###autoload
 (define-minor-mode rcirc-track-minor-mode
   "Global minor mode for tracking activity in rcirc buffers."
-  :init-value nil
-  :lighter ""
-  :keymap rcirc-track-minor-mode-map
   :global t
-  :group 'rcirc
   (or global-mode-string (setq global-mode-string '("")))
   ;; toggle the mode-line channel indicator
   (if rcirc-track-minor-mode
@@ -2219,12 +2206,21 @@ CHANNELS is a comma- or space-separated string of channel names."
 		 (read-string "Channel: "))))
   (rcirc-send-string process (concat "INVITE " nick-channel)))
 
-;; TODO: /part #channel reason, or consider removing #channel altogether
 (defun-rcirc-command part (channel)
-  "Part CHANNEL."
+  "Part CHANNEL.
+CHANNEL should be a string of the form \"#CHANNEL-NAME REASON\".
+If omitted, CHANNEL-NAME defaults to TARGET, and REASON defaults
+to `rcirc-default-part-reason'."
   (interactive "sPart channel: ")
-  (let ((channel (if (> (length channel) 0) channel target)))
-    (rcirc-send-string process (concat "PART " channel " :" rcirc-id-string))))
+  (let ((channel (if (> (length channel) 0) channel target))
+        (msg rcirc-default-part-reason))
+    (when (string-match "\\`\\([&#+!]\\S-+\\)?\\s-*\\(.+\\)?\\'" channel)
+      (when (match-beginning 2)
+        (setq msg (match-string 2 channel)))
+      (setq channel (if (match-beginning 1)
+                        (match-string 1 channel)
+                      target)))
+    (rcirc-send-string process (concat "PART " channel " :" msg))))
 
 (defun-rcirc-command quit (reason)
   "Send a quit message to server with REASON."
@@ -2232,7 +2228,7 @@ CHANNELS is a comma- or space-separated string of channel names."
   (rcirc-send-string process (concat "QUIT :"
 				     (if (not (zerop (length reason)))
 					 reason
-				       rcirc-id-string))))
+                                       rcirc-default-quit-reason))))
 
 (defun-rcirc-command reconnect (_)
   "Reconnect to current server."
@@ -2333,8 +2329,8 @@ With a prefix arg, prompt for new topic."
   (let ((timestamp (format-time-string "%s")))
     (rcirc-send-ctcp process target "PING" timestamp)))
 
-(defun rcirc-cmd-me (args &optional process target)
-  (rcirc-send-ctcp process target "ACTION" args))
+(defun rcirc-cmd-me (args process target)
+  (when target (rcirc-send-ctcp process target "ACTION" args)))
 
 (defun rcirc-add-or-remove (set &rest elements)
   (dolist (elt elements)
@@ -2421,7 +2417,7 @@ keywords when no KEYWORD is given."
 	 (concat
 	  "\\(?:"
 	  ;; Match paired parentheses, e.g. in Wikipedia URLs:
-	  "[" chars punct "]+" "(" "[" chars punct "]+" "[" chars "]*)" "[" chars "]"
+	  "[" chars punct "]+" "(" "[" chars punct "]+" ")" "[" chars "]"
 	  "\\|"
 	  "[" chars punct     "]+" "[" chars "]"
 	  "\\)"))
@@ -2559,16 +2555,15 @@ If ARG is given, opens the URL in a new browser window."
     (setq rcirc-server-name sender)
     (setq rcirc-nick (car args))
     (rcirc-update-prompt)
-    (if rcirc-auto-authenticate-flag
-        (if (and rcirc-authenticate-before-join
-		 ;; We have to ensure that there's an authentication
-		 ;; entry for that server.  Else,
-		 ;; rcirc-authenticated-hook won't be triggered, and
-		 ;; autojoin won't happen at all.
-		 (let (auth-required)
-		   (dolist (s rcirc-authinfo auth-required)
-		     (when (string-match (car s) rcirc-server-name)
-		       (setq auth-required t)))))
+    (if (and rcirc-auto-authenticate-flag
+             ;; We have to ensure that there's an authentication
+             ;; entry for that server.  Otherwise,
+             ;; there's no point in calling authenticate.
+             (let (auth-required)
+               (dolist (s rcirc-authinfo auth-required)
+                 (when (string-match (car s) rcirc-server)
+                   (setq auth-required t)))))
+        (if rcirc-authenticate-before-join
             (progn
 	      (add-hook 'rcirc-authenticated-hook 'rcirc-join-channels-post-auth t t)
               (rcirc-authenticate))
@@ -2627,12 +2622,16 @@ the only argument."
                (and ;; nickserv
                 (string= sender "NickServ")
                 (string= target rcirc-nick)
-                (member message
-                        (list
-                         (format "You are now identified for \C-b%s\C-b." rcirc-nick)
-			 (format "You are successfully identified as \C-b%s\C-b." rcirc-nick)
-                         "Password accepted - you are now recognized."
-                         )))
+                (cl-member
+                 message
+                 (list
+                  (format "You are now identified for \C-b%s\C-b." rcirc-nick)
+                  (format "You are successfully identified as \C-b%s\C-b."
+                          rcirc-nick)
+                  "Password accepted - you are now recognized.")
+                 ;; The nick may have a different case, so match
+                 ;; case-insensitively (Bug#39345).
+                 :test #'cl-equalp))
                (and ;; quakenet
                 (string= sender "Q")
                 (string= target rcirc-nick)
@@ -2870,9 +2869,28 @@ Not in rfc1459.txt"
 (defun rcirc-handler-433 (process sender args text)
   "ERR_NICKNAMEINUSE"
   (rcirc-handler-generic process "433" sender args text)
-  (let* ((new-nick (concat (cadr args) "`")))
-    (with-rcirc-process-buffer process
-      (rcirc-cmd-nick new-nick nil process))))
+  (with-rcirc-process-buffer process
+    (let* ((length (string-to-number
+                    (or (rcirc-server-parameter-value 'nicklen)
+                        "16"))))
+      (rcirc-cmd-nick (rcirc--make-new-nick (cadr args) length) nil process))))
+
+(defun rcirc--make-new-nick (nick length)
+  ;; If we already have some ` chars at the end, then shorten the
+  ;; non-` bit of the name.
+  (when (= (length nick) length)
+    (setq nick (replace-regexp-in-string "[^`]\\(`+\\)\\'" "\\1" nick)))
+  (concat
+   (if (>= (length nick) length)
+       (substring nick 0 (1- length))
+     nick)
+   "`"))
+
+(defun rcirc-handler-005 (process sender args text)
+  "ERR_NICKNAMEINUSE"
+  (rcirc-handler-generic process "005" sender args text)
+  (with-rcirc-process-buffer process
+    (setq rcirc-server-parameters (append rcirc-server-parameters args))))
 
 (defun rcirc-authenticate ()
   "Send authentication to process associated with current buffer.
@@ -2963,8 +2981,7 @@ Passwords are stored in `rcirc-authinfo' (which see)."
     (((class color) (min-colors 16) (background dark))  :foreground "LightSkyBlue")
     (((class color) (min-colors 8)) :foreground "blue" :weight bold)
     (t :inverse-video t :weight bold))
-  "Rcirc face for my messages."
-  :group 'rcirc-faces)
+  "Rcirc face for my messages.")
 
 (defface rcirc-other-nick	     ; font-lock-variable-name-face
   '((((class grayscale) (background light))
@@ -2977,8 +2994,7 @@ Passwords are stored in `rcirc-authinfo' (which see)."
     (((class color) (min-colors 16) (background dark))  :foreground "LightGoldenrod")
     (((class color) (min-colors 8)) :foreground "yellow" :weight light)
     (t :weight bold :slant italic))
-  "Rcirc face for other users' messages."
-  :group 'rcirc-faces)
+  "Rcirc face for other users' messages.")
 
 (defface rcirc-bright-nick
   '((((class grayscale) (background light))
@@ -2991,13 +3007,11 @@ Passwords are stored in `rcirc-authinfo' (which see)."
     (((class color) (min-colors 16) (background dark))  :foreground "Aquamarine")
     (((class color) (min-colors 8)) :foreground "magenta")
     (t :weight bold :underline t))
-  "Rcirc face for nicks matched by `rcirc-bright-nicks'."
-  :group 'rcirc-faces)
+  "Rcirc face for nicks matched by `rcirc-bright-nicks'.")
 
 (defface rcirc-dim-nick
   '((t :inherit default))
-  "Rcirc face for nicks in `rcirc-dim-nicks'."
-  :group 'rcirc-faces)
+  "Rcirc face for nicks in `rcirc-dim-nicks'.")
 
 (defface rcirc-server			; font-lock-comment-face
   '((((class grayscale) (background light))
@@ -3015,8 +3029,7 @@ Passwords are stored in `rcirc-authinfo' (which see)."
     (((class color) (min-colors 8) (background light)))
     (((class color) (min-colors 8) (background dark)))
     (t :weight bold :slant italic))
-  "Rcirc face for server messages."
-  :group 'rcirc-faces)
+  "Rcirc face for server messages.")
 
 (defface rcirc-server-prefix	 ; font-lock-comment-delimiter-face
   '((default :inherit rcirc-server)
@@ -3026,13 +3039,11 @@ Passwords are stored in `rcirc-authinfo' (which see)."
      :foreground "red")
     (((class color) (min-colors 8) (background dark))
      :foreground "red1"))
-  "Rcirc face for server prefixes."
-  :group 'rcirc-faces)
+  "Rcirc face for server prefixes.")
 
 (defface rcirc-timestamp
   '((t :inherit default))
-  "Rcirc face for timestamps."
-  :group 'rcirc-faces)
+  "Rcirc face for timestamps.")
 
 (defface rcirc-nick-in-message		; font-lock-keyword-face
   '((((class grayscale) (background light)) :foreground "LightGray" :weight bold)
@@ -3043,45 +3054,45 @@ Passwords are stored in `rcirc-authinfo' (which see)."
     (((class color) (min-colors 16) (background dark))  :foreground "Cyan")
     (((class color) (min-colors 8)) :foreground "cyan" :weight bold)
     (t :weight bold))
-  "Rcirc face for instances of your nick within messages."
-  :group 'rcirc-faces)
+  "Rcirc face for instances of your nick within messages.")
 
 (defface rcirc-nick-in-message-full-line '((t :weight bold))
-  "Rcirc face for emphasizing the entire message when your nick is mentioned."
-  :group 'rcirc-faces)
+  "Rcirc face for emphasizing the entire message when your nick is mentioned.")
 
 (defface rcirc-prompt			; comint-highlight-prompt
   '((((min-colors 88) (background dark)) :foreground "cyan1")
     (((background dark)) :foreground "cyan")
     (t :foreground "dark blue"))
-  "Rcirc face for prompts."
-  :group 'rcirc-faces)
+  "Rcirc face for prompts.")
 
 (defface rcirc-track-nick
   '((((type tty)) :inherit default)
     (t :inverse-video t))
-  "Rcirc face used in the mode-line when your nick is mentioned."
-  :group 'rcirc-faces)
+  "Rcirc face used in the mode-line when your nick is mentioned.")
 
 (defface rcirc-track-keyword '((t :weight bold))
-  "Rcirc face used in the mode-line when keywords are mentioned."
-  :group 'rcirc-faces)
+  "Rcirc face used in the mode-line when keywords are mentioned.")
 
 (defface rcirc-url '((t :weight bold))
-  "Rcirc face used to highlight urls."
-  :group 'rcirc-faces)
+  "Rcirc face used to highlight urls.")
 
 (defface rcirc-keyword '((t :inherit highlight))
-  "Rcirc face used to highlight keywords."
-  :group 'rcirc-faces)
+  "Rcirc face used to highlight keywords.")
 
 
 ;; When using M-x flyspell-mode, only check words after the prompt
 (put 'rcirc-mode 'flyspell-mode-predicate 'rcirc-looking-at-input)
 (defun rcirc-looking-at-input ()
-  "Returns true if point is past the input marker."
+  "Return true if point is past the input marker."
   (>= (point) rcirc-prompt-end-marker))
 
+
+(defun rcirc-server-parameter-value (parameter)
+  (cl-loop for elem in rcirc-server-parameters
+           for setting = (split-string elem "=")
+           when (and (= (length setting) 2)
+                     (string-equal (downcase (car setting)) parameter))
+           return (cadr setting)))
 
 (provide 'rcirc)
 

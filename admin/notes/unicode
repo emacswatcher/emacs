@@ -1,6 +1,6 @@
                                             -*-mode: text; coding: utf-8;-*-
 
-Copyright (C) 2002-2019 Free Software Foundation, Inc.
+Copyright (C) 2002-2021 Free Software Foundation, Inc.
 See the end of the file for license conditions.
 
 Importing a new Unicode Standard version into Emacs
@@ -62,6 +62,9 @@ of OTF script tags in otf-script-alist, whose source is on this page:
   https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags
 
 Other databases in fontset.el might also need to be updated as needed.
+One notable place to check is the function setup-default-fontset,
+where new scripts will generally need some addition, most probably to
+the list of "simple" scripts (search for "Simple").
 
 The function 'ucs-names', defined in lisp/international/mule-cmds.el,
 might need to be updated because it knows about used and unused ranges
@@ -257,7 +260,6 @@ nontrivial changes to the build process.
 
      These files contain characters that cannot be encoded in UTF-8.
 
-	lisp/international/titdic-cnv.el
 	lisp/language/ethio-util.el
 	lisp/language/ethiopic.el
 	lisp/language/ind-util.el
@@ -265,6 +267,7 @@ nontrivial changes to the build process.
 	lisp/language/tibetan.el
 	lisp/leim/quail/ethiopic.el
 	lisp/leim/quail/tibetan.el
+	lisp/international/titdic-cnv.el
 
  * binary files
 

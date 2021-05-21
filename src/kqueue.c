@@ -1,6 +1,6 @@
 /* Filesystem notifications support with kqueue API.
 
-Copyright (C) 2015-2019 Free Software Foundation, Inc.
+Copyright (C) 2015-2021 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -19,8 +19,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <config.h>
 
-#ifdef HAVE_KQUEUE
-#include <stdio.h>
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/time.h>
@@ -130,7 +128,7 @@ kqueue_compare_dir_list (Lisp_Object watch_object)
     return;
   }
   new_directory_files =
-    directory_files_internal (dir, Qnil, Qnil, Qnil, true, Qnil);
+    directory_files_internal (dir, Qnil, Qnil, Qnil, true, Qnil, Qnil);
   new_dl = kqueue_directory_listing (new_directory_files);
 
   /* Parse through the old list.  */
@@ -416,7 +414,7 @@ only when the upper directory of the renamed file is watched.  */)
     }
 
   /* Open file.  */
-  file = ENCODE_FILE (file);
+  Lisp_Object encoded_file = ENCODE_FILE (file);
   oflags = O_NONBLOCK;
 #if O_EVTONLY
   oflags |= O_EVTONLY;
@@ -428,7 +426,7 @@ only when the upper directory of the renamed file is watched.  */)
 #else
     oflags |= O_NOFOLLOW;
 #endif
-  fd = emacs_open (SSDATA (file), oflags, 0);
+  fd = emacs_open (SSDATA (encoded_file), oflags, 0);
   if (fd == -1)
     report_file_error ("File cannot be opened", file);
 
@@ -454,7 +452,8 @@ only when the upper directory of the renamed file is watched.  */)
   if (NILP (Ffile_directory_p (file)))
     watch_object = list4 (watch_descriptor, file, flags, callback);
   else {
-    dir_list = directory_files_internal (file, Qnil, Qnil, Qnil, true, Qnil);
+    dir_list = directory_files_internal (file, Qnil, Qnil, Qnil, true, Qnil,
+                                         Qnil);
     watch_object = list5 (watch_descriptor, file, flags, callback, dir_list);
   }
   watch_list = Fcons (watch_object, watch_list);
@@ -532,8 +531,6 @@ syms_of_kqueue (void)
 
   Fprovide (intern_c_string ("kqueue"), Qnil);
 }
-
-#endif /* HAVE_KQUEUE  */
 
 /* PROBLEMS
    * https://bugs.launchpad.net/ubuntu/+source/libkqueue/+bug/1514837

@@ -29,6 +29,11 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 # include FT_BDF_H
 #endif
 
+#ifdef HAVE_HARFBUZZ
+#include <hb.h>
+#include <hb-ft.h>
+#endif  /* HAVE_HARFBUZZ */
+
 #ifdef HAVE_LIBOTF
 # include <otf.h>
 #ifdef HAVE_M17N_FLT
@@ -36,11 +41,9 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #endif	/* HAVE_M17N_FLT */
 #endif	/* HAVE_LIBOTF */
 
-extern FcCharSet *ftfont_get_fc_charset (Lisp_Object);
-extern Lisp_Object ftfont_open2 (struct frame *f,
-                                 Lisp_Object entity,
-                                 int pixel_size,
-                                 Lisp_Object font_object);
+extern void ftfont_fix_match (FcPattern *, FcPattern *);
+extern void ftfont_add_rendering_parameters (FcPattern *, Lisp_Object);
+extern FcPattern *ftfont_entity_pattern (Lisp_Object, int);
 
 /* This struct is shared by the XFT, Freetype, and Cairo font
    backends.  Members up to and including 'matrix' are common, the
@@ -55,12 +58,16 @@ struct font_info
   FT_Size ft_size;
   int index;
   FT_Matrix matrix;
+#ifdef HAVE_HARFBUZZ
+  hb_font_t *hb_font;
+#endif  /* HAVE_HARFBUZZ */
 
 #ifdef USE_CAIRO
-  cairo_font_face_t *cr_font_face;
-  /* To prevent cairo from cluttering the activated FT_Size maintained
-     in ftfont.c, we activate this special FT_Size before drawing.  */
-  FT_Size ft_size_draw;
+  cairo_scaled_font_t *cr_scaled_font;
+  /* Scale factor from the bitmap strike metrics in 1/64 pixels, used
+     as the hb_position_t value in HarfBuzz, to those in (scaled)
+     pixels.  The value is 0 for scalable fonts.  */
+  double bitmap_position_unit;
   /* Font metrics cache.  */
   struct font_metrics **metrics;
   short metrics_nrows;

@@ -1,6 +1,6 @@
-;; ede/source.el --- EDE source code object
+;; ede/source.el --- EDE source code object  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2000, 2008-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2000, 2008-2021 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Keywords: project, make
@@ -72,7 +72,7 @@ that they are willing to use.")
 
 ;;; Methods
 ;;
-(cl-defmethod initialize-instance :after ((this ede-sourcecode) &rest fields)
+(cl-defmethod initialize-instance :after ((this ede-sourcecode) &rest _fields)
   "Make sure that all ede compiler objects are cached in
 `ede-compiler-list'."
   (let ((lst ede-sourcecode-list))

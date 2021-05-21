@@ -1,6 +1,6 @@
 ;;; rng-valid.el --- real-time validation of XML using RELAX NG  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2003, 2007-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2003, 2007-2021 Free Software Foundation, Inc.
 
 ;; Author: James Clark
 ;; Keywords: wp, hypermedia, languages, XML, RelaxNG
@@ -106,67 +106,56 @@
   :group 'languages)
 
 (defface rng-error '((t (:inherit font-lock-warning-face)))
-  "Face for highlighting XML errors."
-  :group 'relax-ng)
+  "Face for highlighting XML errors.")
 
 (defcustom rng-state-cache-distance 2000
   "Distance in characters between each parsing and validation state cache."
-  :type 'integer
-  :group 'relax-ng)
+  :type 'integer)
 
 (defcustom rng-validate-chunk-size 8000
   "Number of characters in a RELAX NG validation chunk.
 A validation chunk will be the smallest chunk that is at least this
 size and ends with a tag.  After validating a chunk, validation will
 continue only if Emacs is still idle."
-  :type 'integer
-  :group 'relax-ng)
+  :type 'integer)
 
 (defcustom rng-validate-delay 1.5
   "Time in seconds that Emacs must be idle before starting a full validation.
 A full validation continues until either validation is up to date
 or Emacs is no longer idle."
-  :type 'number
-  :group 'relax-ng)
+  :type 'number)
 
 (defcustom rng-validate-quick-delay 0.3
   "Time in seconds that Emacs must be idle before starting a quick validation.
 A quick validation validates at most one chunk."
-  :type 'number
-  :group 'relax-ng)
+  :type 'number)
 
 ;; Global variables
 
-(defvar rng-validate-timer nil)
-(make-variable-buffer-local 'rng-validate-timer)
+(defvar-local rng-validate-timer nil)
 ;; ensure that we can cancel the timer even after a kill-all-local-variables
 (put 'rng-validate-timer 'permanent-local t)
 
-(defvar rng-validate-quick-timer nil)
-(make-variable-buffer-local 'rng-validate-quick-timer)
+(defvar-local rng-validate-quick-timer nil)
 ;; ensure that we can cancel the timer even after a kill-all-local-variables
 (put 'rng-validate-quick-timer 'permanent-local t)
 
-(defvar rng-error-count nil
+(defvar-local rng-error-count nil
   "Number of errors in the current buffer.
 Always equal to number of overlays with category `rng-error'.")
-(make-variable-buffer-local 'rng-error-count)
 
-(defvar rng-message-overlay nil
+(defvar-local rng-message-overlay nil
   "Overlay in this buffer whose `help-echo' property was last printed.
 It is nil if none.")
-(make-variable-buffer-local 'rng-message-overlay)
 
-(defvar rng-message-overlay-inhibit-point nil
+(defvar-local rng-message-overlay-inhibit-point nil
   "Position at which message from overlay should be inhibited.
 If point is equal to this and the error overlay around
 point is `rng-message-overlay', then the `help-echo' property
 of the error overlay should not be printed with `message'.")
-(make-variable-buffer-local 'rng-message-overlay-inhibit-point)
 
-(defvar rng-message-overlay-current nil
+(defvar-local rng-message-overlay-current nil
   "Non-nil if `rng-message-overlay' is still the current message.")
-(make-variable-buffer-local 'rng-message-overlay-current)
 
 (defvar rng-open-elements nil
   "Stack of names of open elements represented as a list.
@@ -183,11 +172,10 @@ indicating an unresolvable entity or character reference.")
 
 (defvar rng-collecting-text nil)
 
-(defvar rng-validate-up-to-date-end nil
+(defvar-local rng-validate-up-to-date-end nil
   "Last position where validation is known to be up to date.")
-(make-variable-buffer-local 'rng-validate-up-to-date-end)
 
-(defvar rng-conditional-up-to-date-start nil
+(defvar-local rng-conditional-up-to-date-start nil
   "Marker for the start of the conditionally up-to-date region.
 It is nil if there is no conditionally up-to-date region.  The
 conditionally up-to-date region must be such that for any cached
@@ -196,26 +184,20 @@ if at some point it is determined that S becomes correct for P,
 then all states with position >= P in the conditionally up to
 date region must also then be correct and all errors between P
 and the end of the region must then be correctly marked.")
-(make-variable-buffer-local 'rng-conditional-up-to-date-start)
 
-(defvar rng-conditional-up-to-date-end nil
+(defvar-local rng-conditional-up-to-date-end nil
   "Marker for the end of the conditionally up-to-date region.
 It is nil if there is no conditionally up-to-date region.
 See the variable `rng-conditional-up-to-date-start'.")
-(make-variable-buffer-local 'rng-conditional-up-to-date-end)
 
 (defvar rng-parsing-for-state nil
   "Non-nil means we are currently parsing just to compute the state.
 Should be dynamically bound.")
 
-(defvar rng-validate-mode nil)
-(make-variable-buffer-local 'rng-validate-mode)
-
-(defvar rng-dtd nil)
-(make-variable-buffer-local 'rng-dtd)
+(defvar-local rng-dtd nil)
 
 ;;;###autoload
-(defun rng-validate-mode (&optional arg no-change-schema)
+(define-minor-mode rng-validate-mode
   "Minor mode performing continual validation against a RELAX NG schema.
 
 Checks whether the buffer is a well-formed XML 1.0 document,
@@ -237,11 +219,7 @@ be a RELAX NG schema using the compact schema \(such schemas
 conventionally have a suffix of `.rnc').  The variable
 `rng-schema-locating-files' specifies files containing rules
 to use for finding the schema."
-  (interactive "P")
-  (setq rng-validate-mode
-	(if (null arg)
-	    (not rng-validate-mode)
-	  (> (prefix-numeric-value arg) 0)))
+  :global nil
   (save-restriction
     (widen)
     (with-silent-modifications
@@ -252,21 +230,20 @@ to use for finding the schema."
   (rng-clear-conditional-region)
   (setq rng-error-count 0)
   ;; do this here to avoid infinite loop if we set the schema
-  (remove-hook 'rng-schema-change-hook 'rng-validate-clear t)
+  (remove-hook 'rng-schema-change-hook #'rng-validate-clear t)
   (cond (rng-validate-mode
 	 (unwind-protect
 	     (save-excursion
 	       ;; An error can change the current buffer
 	       (when (or (not rng-current-schema)
-			 (and (eq rng-current-schema rng-any-element)
-			      (not no-change-schema)))
+			 (eq rng-current-schema rng-any-element))
 		 (rng-auto-set-schema t)))
 	   (unless rng-current-schema (rng-set-schema-file-1 nil))
-	   (add-hook 'rng-schema-change-hook 'rng-validate-clear nil t)
-	   (add-hook 'after-change-functions 'rng-after-change-function nil t)
-	   (add-hook 'kill-buffer-hook 'rng-kill-timers nil t)
-	   (add-hook 'echo-area-clear-hook 'rng-echo-area-clear-function nil t)
-	   (add-hook 'post-command-hook 'rng-maybe-echo-error-at-point nil t)
+	   (add-hook 'rng-schema-change-hook #'rng-validate-clear nil t)
+	   (add-hook 'after-change-functions #'rng-after-change-function nil t)
+	   (add-hook 'kill-buffer-hook #'rng-kill-timers nil t)
+	   (add-hook 'echo-area-clear-hook #'rng-echo-area-clear-function nil t)
+	   (add-hook 'post-command-hook #'rng-maybe-echo-error-at-point nil t)
 	   (rng-match-init-buffer)
 	   (rng-activate-timers)
 	   ;; Start validating right away if the buffer is visible.
@@ -278,11 +255,10 @@ to use for finding the schema."
 	     (rng-validate-while-idle (current-buffer)))))
 	(t
 	 (rng-cancel-timers)
-	 (force-mode-line-update)
-	 (remove-hook 'kill-buffer-hook 'rng-cancel-timers t)
-	 (remove-hook 'post-command-hook 'rng-maybe-echo-error-at-point t)
-	 (remove-hook 'echo-area-clear-hook 'rng-echo-area-clear-function t)
-	 (remove-hook 'after-change-functions 'rng-after-change-function t))))
+	 (remove-hook 'kill-buffer-hook #'rng-cancel-timers t)
+	 (remove-hook 'post-command-hook #'rng-maybe-echo-error-at-point t)
+	 (remove-hook 'echo-area-clear-hook #'rng-echo-area-clear-function t)
+	 (remove-hook 'after-change-functions #'rng-after-change-function t))))
 
 (defun rng-set-schema-file-and-validate (filename)
   "Sets the schema and turns on `rng-validate-mode' if not already on.
@@ -389,16 +365,20 @@ The schema is set like `rng-auto-set-schema'."
       (setq rng-validate-timer
 	    (run-with-idle-timer rng-validate-delay
 				 t
-				 'rng-validate-while-idle
+				 #'rng-validate-while-idle
 				 (current-buffer)))
       (setq rng-validate-quick-timer
 	    (run-with-idle-timer rng-validate-quick-delay
 				 t
-				 'rng-validate-quick-while-idle
+				 #'rng-validate-quick-while-idle
 				 (current-buffer))))))
 
 (defun rng-validate-clear ()
-  (rng-validate-mode 1 t))
+  (if (eq rng-current-schema rng-any-element)
+      ;; Prevent rng-validate-mode from trying to find another schema.
+      (let ((rng-current-schema (copy-sequence rng-current-schema)))
+        (rng-validate-mode))
+    (rng-validate-mode)))
 
 ;; These two variables are dynamically bound and used
 ;; to pass information between rng-validate-while-idle
@@ -432,7 +412,7 @@ The schema is set like `rng-auto-set-schema'."
       (if rng-validate-mode
           (if (let ((rng-validate-display-point (point))
                     (rng-validate-display-modified-p (buffer-modified-p)))
-                (rng-do-some-validation 'rng-validate-while-idle-continue-p))
+                (rng-do-some-validation #'rng-validate-while-idle-continue-p))
               (force-mode-line-update)
             (rng-validate-done))
         ;; Must have done kill-all-local-variables.
@@ -1109,7 +1089,7 @@ as empty-element."
 
 (defun rng-mark-start-tag-close (&rest args)
   (when (not (eq xmltok-type 'partial-start-tag))
-    (rng-mark-invalid (apply 'format args)
+    (rng-mark-invalid (apply #'format args)
 		      (- (point)
 			 (if (eq xmltok-type 'empty-element)
 			     2
@@ -1285,19 +1265,19 @@ as empty-element."
 	  ((memq nil contents) nil)
 	  ((not (cdr contents))
 	   (rng-segment-string (car contents)))
-	  (t (apply 'concat
-		    (nreverse (mapcar 'rng-segment-string
+	  (t (apply #'concat
+		    (nreverse (mapcar #'rng-segment-string
 				      contents)))))))
 
 (defun rng-segment-string (segment)
   (or (car segment)
-      (apply 'buffer-substring-no-properties
+      (apply #'buffer-substring-no-properties
 	     (cdr segment))))
 
 (defun rng-segment-blank-p (segment)
   (if (car segment)
       (rng-blank-p (car segment))
-    (apply 'rng-region-blank-p
+    (apply #'rng-region-blank-p
 	   (cdr segment))))
 
 (defun rng-contents-region ()

@@ -1,6 +1,6 @@
 ;;; xterm.el --- define function key sequences and standard colors for xterm  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1995, 2001-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1995, 2001-2021 Free Software Foundation, Inc.
 
 ;; Author: FSF
 ;; Keywords: terminals
@@ -710,15 +710,18 @@ Return the pasted text as a string."
     (while (and (setq chr (xterm--read-event-for-query)) (not (equal chr ?c)))
       (setq str (concat str (string chr))))
     ;; Since xterm-280, the terminal type (NUMBER1) is now 41 instead of 0.
-    (when (string-match "\\([0-9]+\\);\\([0-9]+\\);0" str)
+    (when (string-match "\\([0-9]+\\);\\([0-9]+\\);[01]" str)
       (let ((version (string-to-number (match-string 2 str))))
-        (when (and (> version 2000) (equal (match-string 1 str) "1"))
+        (when (and (> version 2000)
+                   (or (equal (match-string 1 str) "1")
+                       (equal (match-string 1 str) "65")))
           ;; Hack attack!  bug#16988: gnome-terminal reports "1;NNNN;0"
           ;; with a large NNNN but is based on a rather old xterm code.
           ;; Gnome terminal 2.32.1 reports 1;2802;0
           ;; Gnome terminal 3.6.1 reports 1;3406;0
           ;; Gnome terminal 3.22.2 reports 1;4601;0 and *does* support
           ;; background color querying (Bug#29716).
+          ;; Gnome terminal 3.38.0 reports 65;6200;1.
           (when (> version 4000)
             (xterm--query "\e]11;?\e\\"
                           '(("\e]11;" .  xterm--report-background-handler))))
@@ -767,7 +770,8 @@ Can be nil to mean \"no timeout\".")
 By not redisplaying right away for xterm queries, we can avoid
 unsightly flashing during initialization. Give up and redisplay
 anyway if we've been waiting a little while."
-  (let ((start-time (current-time)))
+  (let ((start-time (current-time))
+        (inhibit--record-char t))
     (or (let ((inhibit-redisplay t))
           (read-event nil nil xterm-query-redisplay-timeout))
         (read-event nil nil
@@ -946,21 +950,31 @@ The title is constructed from `frame-title-format'."
     (type data-type
      &context (window-system nil)
               ;; Only applies to terminals which have it enabled.
-              ((terminal-parameter nil 'xterm--get-selection) (eql t)))
+              ((terminal-parameter nil 'xterm--get-selection) (eql t))
+              ;; Doesn't work in screen; see bug#36879.
+              ((eq (terminal-parameter nil 'terminal-initted)
+                   'terminal-init-screen)
+               (eql nil)))
   (unless (eq data-type 'STRING)
     (error "Unsupported data type %S" data-type))
-  (let* ((screen (eq (terminal-parameter nil 'terminal-initted)
-                     'terminal-init-screen))
-         (query (concat "\e]52;" (xterm--selection-char type) ";")))
+  (let ((query (concat "\e]52;" (xterm--selection-char type) ";")))
     (with-temp-buffer
       (set-buffer-multibyte nil)
       (xterm--query
-       (concat (when screen "\eP") query "?\a" (when screen "\e\\"))
-       (list (cons query (lambda ()
-                           (while (let ((char (read-char)))
-                                    (unless (eq char ?\a)
-                                      (insert char)
-                                      t))))))
+       ;; Use ST as query terminator to get ST as reply terminator (bug#36879).
+       (concat query "?\e\\")
+       (list (cons query
+                   (lambda ()
+                     ;; Read data up to the string terminator, ST.
+                     (let (char last)
+                       (while (and (setq char (read-char
+                                               nil nil
+                                               xterm-query-timeout))
+                                   (not (and (eq char ?\\)
+                                             (eq last ?\e))))
+                         (when last
+                           (insert last))
+                         (setq last char))))))
        'no-async)
       (base64-decode-region (point-min) (point-max))
       (decode-coding-region (point-min) (point-max) 'utf-8-unix t))))

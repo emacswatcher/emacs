@@ -1,6 +1,6 @@
 ;;; tabulated-list.el --- generic major mode for tabulated lists -*- lexical-binding: t -*-
 
-;; Copyright (C) 2011-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2021 Free Software Foundation, Inc.
 
 ;; Author: Chong Yidong <cyd@stupidchicken.com>
 ;; Keywords: extensions, lisp
@@ -71,6 +71,11 @@ See `tabulated-list-gui-sort-indicator-asc' for the indicator used on GUI
 frames."
   :group 'tabulated-list
   :type 'character
+  :version "27.1")
+
+(defface tabulated-list-fake-header
+  '((t :overline t :underline t :weight bold))
+  "Face used on fake header lines."
   :version "27.1")
 
 ;; The reason `tabulated-list-format' and other variables are
@@ -187,6 +192,19 @@ If ADVANCE is non-nil, move forward by one line afterwards."
   (if advance
       (forward-line)))
 
+(defun tabulated-list-clear-all-tags ()
+  "Clear all tags from the padding area in the current buffer."
+  (unless (> tabulated-list-padding 0)
+    (error "There can be no tags in current buffer"))
+  (save-excursion
+    (goto-char (point-min))
+    (let ((inhibit-read-only t)
+          ;; Match non-space in the first n characters.
+          (re (format "^ \\{0,%d\\}[^ ]" (1- tabulated-list-padding)))
+          (empty (make-string tabulated-list-padding ? )))
+      (while (re-search-forward re nil 'noerror)
+        (tabulated-list-put-tag empty)))))
+
 (defvar tabulated-list-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map (make-composed-keymap
@@ -195,6 +213,8 @@ If ADVANCE is non-nil, move forward by one line afterwards."
     (define-key map "n" 'next-line)
     (define-key map "p" 'previous-line)
     (define-key map "S" 'tabulated-list-sort)
+    (define-key map "}" 'tabulated-list-widen-current-column)
+    (define-key map "{" 'tabulated-list-narrow-current-column)
     (define-key map [follow-link] 'mouse-face)
     (define-key map [mouse-2] 'mouse-select-window)
     map)
@@ -249,42 +269,48 @@ Populated by `tabulated-list-init-header'.")
   ;; FIXME: Should share code with tabulated-list-print-col!
   (let ((x (max tabulated-list-padding 0))
 	(button-props `(help-echo "Click to sort by column"
-			mouse-face header-line-highlight
-			keymap ,tabulated-list-sort-button-map))
+			          mouse-face header-line-highlight
+			          keymap ,tabulated-list-sort-button-map))
+        (len (length tabulated-list-format))
 	(cols nil))
     (if display-line-numbers
         (setq x (+ x (tabulated-list-line-number-width))))
     (push (propertize " " 'display `(space :align-to ,x)) cols)
-    (dotimes (n (length tabulated-list-format))
+    (dotimes (n len)
       (let* ((col (aref tabulated-list-format n))
+             (not-last-col (< n (1- len)))
 	     (label (nth 0 col))
+             (lablen (length label))
+             (pname label)
 	     (width (nth 1 col))
 	     (props (nthcdr 3 col))
 	     (pad-right (or (plist-get props :pad-right) 1))
              (right-align (plist-get props :right-align))
              (next-x (+ x pad-right width)))
+        (when (and (>= lablen 3) (> lablen width) not-last-col)
+          (setq label (truncate-string-to-width label (- lablen 1) nil nil t)))
 	(push
 	 (cond
 	  ;; An unsortable column
 	  ((not (nth 2 col))
-	   (propertize label 'tabulated-list-column-name label))
+	   (propertize label 'tabulated-list-column-name pname))
 	  ;; The selected sort column
 	  ((equal (car col) (car tabulated-list-sort-key))
 	   (apply 'propertize
-		  (concat label
-			  (cond
-			   ((> (+ 2 (length label)) width) "")
-			   ((cdr tabulated-list-sort-key)
+                  (concat label
+                          (cond
+                           ((and (< lablen 3) not-last-col) "")
+                           ((cdr tabulated-list-sort-key)
                             (format " %c"
                                     tabulated-list-gui-sort-indicator-desc))
-			   (t (format " %c"
+                           (t (format " %c"
                                       tabulated-list-gui-sort-indicator-asc))))
-		  'face 'bold
-		  'tabulated-list-column-name label
-		  button-props))
+                  'face 'bold
+                  'tabulated-list-column-name pname
+                  button-props))
 	  ;; Unselected sortable column.
 	  (t (apply 'propertize label
-		    'tabulated-list-column-name label
+		    'tabulated-list-column-name pname
 		    button-props)))
 	 cols)
         (when right-align
@@ -306,7 +332,6 @@ Populated by `tabulated-list-init-header'.")
     (setq cols (apply 'concat (nreverse cols)))
     (if tabulated-list-use-header-line
 	(setq header-line-format cols)
-      (setq header-line-format nil)
       (setq-local tabulated-list--header-string cols))))
 
 (defun tabulated-list-print-fake-header ()
@@ -320,7 +345,8 @@ Do nothing if `tabulated-list--header-string' is nil."
           (move-overlay tabulated-list--header-overlay (point-min) (point))
         (setq-local tabulated-list--header-overlay
                     (make-overlay (point-min) (point))))
-      (overlay-put tabulated-list--header-overlay 'face 'underline))))
+      (overlay-put tabulated-list--header-overlay
+                   'face 'tabulated-list-fake-header))))
 
 (defsubst tabulated-list-header-overlay-p (&optional pos)
   "Return non-nil if there is a fake header.
@@ -366,7 +392,7 @@ column.  Negate the predicate that would be returned if
                                   (if (stringp b) b (car b)))))))
       ;; Reversed order.
       (if (cdr tabulated-list-sort-key)
-          (lambda (a b) (not (funcall sorter a b)))
+          (lambda (a b) (funcall sorter b a))
         sorter))))
 
 (defsubst tabulated-list--col-local-max-widths (col)
@@ -384,8 +410,7 @@ specified by `tabulated-list-sort-key'.  It then erases the
 buffer and inserts the entries with `tabulated-list-printer'.
 
 Optional argument REMEMBER-POS, if non-nil, means to move point
-to the entry with the same ID element as the current line and
-recenter window line accordingly.
+to the entry with the same ID element as the current line.
 
 Non-nil UPDATE argument means to use an alternative printing
 method which is faster if most entries haven't changed since the
@@ -398,13 +423,10 @@ changing `tabulated-list-sort-key'."
 		     (funcall tabulated-list-entries)
 		   tabulated-list-entries))
         (sorter (tabulated-list--get-sorter))
-	entry-id saved-pt saved-col window-line)
+        entry-id saved-pt saved-col)
     (and remember-pos
 	 (setq entry-id (tabulated-list-get-id))
-	 (setq saved-col (current-column))
-         (when (eq (window-buffer) (current-buffer))
-           (setq window-line
-                 (count-screen-lines (window-start) (point)))))
+	 (setq saved-col (current-column)))
     ;; Sort the entries, if necessary.
     (when sorter
       (setq entries (sort entries sorter)))
@@ -459,9 +481,7 @@ changing `tabulated-list-sort-key'."
     ;; If REMEMBER-POS was specified, move to the "old" location.
     (if saved-pt
 	(progn (goto-char saved-pt)
-	       (move-to-column saved-col)
-	       (when window-line
-                 (recenter window-line)))
+	       (move-to-column saved-col))
       (goto-char (point-min)))))
 
 (defun tabulated-list-print-entry (id cols)
@@ -522,10 +542,10 @@ Return the column number after insertion."
     ;; Don't truncate to `width' if the next column is align-right
     ;; and has some space left, truncate to `available-space' instead.
     (when (and not-last-col
-               (> label-width available-space)
-               (setq label (truncate-string-to-width
-                            label available-space nil nil t)
-                     label-width available-space)))
+	       (> label-width available-space))
+      (setq label (truncate-string-to-width
+		   label available-space nil nil t t)
+	    label-width available-space))
     (setq label (bidi-string-mark-left-to-right label))
     (when (and right-align (> width label-width))
       (let ((shift (- width label-width)))
@@ -645,6 +665,39 @@ With a numeric prefix argument N, sort the Nth column."
     (tabulated-list-init-header)
     (tabulated-list-print t)))
 
+(defun tabulated-list-widen-current-column (&optional n)
+  "Widen the current tabulated-list column by N chars.
+Interactively, N is the prefix numeric argument, and defaults to
+1."
+  (interactive "p")
+  (let ((start (current-column))
+        (nb-cols (length tabulated-list-format))
+        (col-nb 0)
+        (total-width 0)
+        (found nil)
+        col-width)
+    (while (and (not found)
+                (< col-nb nb-cols))
+      (if (> start
+             (setq total-width
+                   (+ total-width
+                      (setq col-width
+                            (cadr (aref tabulated-list-format
+                                        col-nb))))))
+          (setq col-nb (1+ col-nb))
+        (setq found t)
+        (setf (cadr (aref tabulated-list-format col-nb))
+              (max 1 (+ col-width n)))
+        (tabulated-list-print t)
+        (tabulated-list-init-header)))))
+
+(defun tabulated-list-narrow-current-column (&optional n)
+  "Narrow the current tabulated list column by N chars.
+Interactively, N is the prefix numeric argument, and defaults to
+1."
+  (interactive "p")
+  (tabulated-list-widen-current-column (- n)))
+
 (defvar tabulated-list--current-lnum-width nil)
 (defun tabulated-list-watch-line-number-width (_window)
   (if display-line-numbers
@@ -703,6 +756,7 @@ as the ewoc pretty-printer."
   (setq-local revert-buffer-function #'tabulated-list-revert)
   (setq-local glyphless-char-display
               (tabulated-list-make-glyphless-char-display-table))
+  (setq-local text-scale-remap-header-line t)
   ;; Avoid messing up the entries' display just because the first
   ;; column of the first entry happens to begin with a R2L letter.
   (setq bidi-paragraph-direction 'left-to-right)

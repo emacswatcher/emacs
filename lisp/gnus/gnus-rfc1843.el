@@ -1,6 +1,6 @@
-;;; gnus-rfc1843.el --- HZ (rfc1843) decoding interface functions for Gnus
+;;; gnus-rfc1843.el --- HZ (rfc1843) decoding interface functions for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1998-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2021 Free Software Foundation, Inc.
 
 ;; Author: Shenghuo Zhu <zsh@cs.rochester.edu>
 ;; Keywords: news HZ HZ+ mail i18n
@@ -56,11 +56,11 @@
 
 (defun rfc1843-gnus-setup ()
   "Setup HZ decoding for Gnus."
-  (add-hook 'gnus-article-decode-hook 'rfc1843-decode-article-body t)
+  (add-hook 'gnus-article-decode-hook #'rfc1843-decode-article-body t)
   (setq gnus-decode-encoded-word-function
-	'gnus-multi-decode-encoded-word-string
+	#'gnus-multi-decode-encoded-word-string
 	gnus-decode-header-function
-	'gnus-multi-decode-header
+	#'gnus-multi-decode-header
 	gnus-decode-encoded-word-methods
 	(nconc gnus-decode-encoded-word-methods
 	       (list

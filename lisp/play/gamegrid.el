@@ -1,9 +1,9 @@
 ;;; gamegrid.el --- library for implementing grid-based games on Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997-1998, 2001-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1997-1998, 2001-2021 Free Software Foundation, Inc.
 
 ;; Author: Glynn Clements <glynn@sensei.co.uk>
-;; Version: 1.02
+;; Old-Version: 1.02
 ;; Created: 1997-08-13
 ;; Keywords: games
 
@@ -28,36 +28,35 @@
 
 ;; ;;;;;;;;;;;;; buffer-local variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defvar gamegrid-use-glyphs t
+(defvar-local gamegrid-use-glyphs t
   "Non-nil means use glyphs when available.")
 
-(defvar gamegrid-use-color t
+(defvar-local gamegrid-use-color t
   "Non-nil means use color when available.")
 
-(defvar gamegrid-font "-*-courier-medium-r-*-*-*-140-100-75-*-*-iso8859-*"
+(defvar-local gamegrid-font "-*-courier-medium-r-*-*-*-140-100-75-*-*-iso8859-*"
   "Name of the font used in X mode.")
 
-(defvar gamegrid-face nil
+(defvar-local gamegrid-face nil
   "Indicates the face to use as a default.")
-(make-variable-buffer-local 'gamegrid-face)
 
-(defvar gamegrid-display-options nil)
+(defvar-local gamegrid-display-options nil)
 
-(defvar gamegrid-buffer-width 0)
-(defvar gamegrid-buffer-height 0)
-(defvar gamegrid-blank 0)
+(defvar-local gamegrid-buffer-width 0)
+(defvar-local gamegrid-buffer-height 0)
+(defvar-local gamegrid-blank 0)
 
-(defvar gamegrid-timer nil)
+(defvar-local gamegrid-timer nil)
 
-(defvar gamegrid-display-mode nil)
+(defvar-local gamegrid-display-mode nil)
 
-(defvar gamegrid-display-table)
+(defvar-local gamegrid-display-table nil)
 
-(defvar gamegrid-face-table nil)
+(defvar-local gamegrid-face-table nil)
 
-(defvar gamegrid-buffer-start 1)
+(defvar-local gamegrid-buffer-start 1)
 
-(defvar gamegrid-score-file-length 50
+(defvar-local gamegrid-score-file-length 50
   "Number of high scores to keep.")
 
 (defvar gamegrid-user-score-file-directory
@@ -66,19 +65,6 @@
 If Emacs was built without support for shared game scores, then this
 directory will be used.")
 
-(make-variable-buffer-local 'gamegrid-use-glyphs)
-(make-variable-buffer-local 'gamegrid-use-color)
-(make-variable-buffer-local 'gamegrid-font)
-(make-variable-buffer-local 'gamegrid-display-options)
-(make-variable-buffer-local 'gamegrid-buffer-width)
-(make-variable-buffer-local 'gamegrid-buffer-height)
-(make-variable-buffer-local 'gamegrid-blank)
-(make-variable-buffer-local 'gamegrid-timer)
-(make-variable-buffer-local 'gamegrid-display-mode)
-(make-variable-buffer-local 'gamegrid-display-table)
-(make-variable-buffer-local 'gamegrid-face-table)
-(make-variable-buffer-local 'gamegrid-buffer-start)
-(make-variable-buffer-local 'gamegrid-score-file-length)
 
 ;; ;;;;;;;;;;;;; global variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -240,20 +226,11 @@ format."
 
 ;; ;;;;;;;;;;;;;;;; miscellaneous functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defsubst gamegrid-characterp (arg)
-  (if (fboundp 'characterp)
-      (characterp arg)
-    (integerp arg)))
-
 (defsubst gamegrid-event-x (event)
-  (if (fboundp 'event-x)
-      (event-x event)
-    (car (posn-col-row (event-end event)))))
+  (car (posn-col-row (event-end event))))
 
 (defsubst gamegrid-event-y (event)
-  (if (fboundp 'event-y)
-      (event-y event)
-    (cdr (posn-col-row (event-end event)))))
+  (cdr (posn-col-row (event-end event))))
 
 ;; ;;;;;;;;;;;;; display functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -274,12 +251,7 @@ format."
   (set-face-foreground face color)
   (set-face-background face color)
   (gamegrid-set-font face)
-  (condition-case nil
-      (set-face-background-pixmap face [nothing]);; XEmacs
-    (error nil))
-  (condition-case nil
-      (set-face-background-pixmap face nil);; Emacs
-    (error nil)))
+  (set-face-background-pixmap face nil))
 
 (defun gamegrid-make-mono-tty-face ()
   (let ((face (make-face 'gamegrid-mono-tty-face)))
@@ -365,7 +337,7 @@ format."
 (defun gamegrid-make-glyph (data-spec-list color-spec-list)
   (let ((data (gamegrid-match-spec-list data-spec-list))
 	(color (gamegrid-match-spec-list color-spec-list)))
-    (cond ((gamegrid-characterp data)
+    (cond ((characterp data)
 	   (vector data))
 	  ((eq data 'colorize)
 	   (gamegrid-colorize-glyph color))
@@ -398,15 +370,6 @@ format."
 	 'mono-tty)
 	(t
 	   'emacs-tty)))
-
-(defun gamegrid-set-display-table ()
-  (if (featurep 'xemacs)
-      (add-spec-to-specifier current-display-table
-			     gamegrid-display-table
-			     (current-buffer)
-			     nil
-			     'remove-locale)
-    (setq buffer-display-table gamegrid-display-table)))
 
 (declare-function image-size "image.c" (spec &optional pixels frame))
 
@@ -444,7 +407,7 @@ format."
       (aset gamegrid-face-table c face)
       (aset gamegrid-display-table c glyph)))
   (gamegrid-setup-default-font)
-  (gamegrid-set-display-table)
+  (setq buffer-display-table gamegrid-display-table)
   (setq cursor-type nil))
 
 
@@ -506,40 +469,28 @@ format."
 
 (defun gamegrid-start-timer (period func)
   (setq gamegrid-timer
-	(if (featurep 'xemacs)
-	    (start-itimer "Gamegrid"
-			  func
-			  period
-			  period
-			  nil
-			  t
-			  (current-buffer))
-	  (run-with-timer period
-			  period
-			  func
-			  (current-buffer)))))
+	(run-with-timer period period func (current-buffer))))
 
 (defun gamegrid-set-timer (delay)
   (if gamegrid-timer
-      (if (fboundp 'set-itimer-restart)
-	  (set-itimer-restart gamegrid-timer delay)
-	(timer-set-time gamegrid-timer
-			(list (aref gamegrid-timer 1)
-			      (aref gamegrid-timer 2)
-			      (aref gamegrid-timer 3))
-			delay))))
+      (timer-set-time gamegrid-timer
+		      (list (aref gamegrid-timer 1)
+			    (aref gamegrid-timer 2)
+			    (aref gamegrid-timer 3))
+		      delay)))
 
 (defun gamegrid-kill-timer ()
   (if gamegrid-timer
-      (if (featurep 'xemacs)
-          (delete-itimer gamegrid-timer)
-        (cancel-timer gamegrid-timer)))
+      (cancel-timer gamegrid-timer))
   (setq gamegrid-timer nil))
 
 ;; ;;;;;;;;;;;;;;; high score functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun gamegrid-add-score (file score)
+(defun gamegrid-add-score (file score &optional reverse)
   "Add the current score to the high score file.
+
+If REVERSE is non-nil, treat lower scores as better than higher
+scores. This is useful for games where lower scores are better.
 
 On POSIX systems there may be a shared game directory for all users in
 which the scorefiles are kept.  On such systems Emacs doesn't create
@@ -558,9 +509,9 @@ specified by the variable `temporary-file-directory'.  If necessary,
 FILE is created there."
   (pcase system-type
     ((or 'ms-dos 'windows-nt)
-     (gamegrid-add-score-insecure file score))
+     (gamegrid-add-score-insecure file score reverse))
     (_
-     (gamegrid-add-score-with-update-game-score file score))))
+     (gamegrid-add-score-with-update-game-score file score reverse))))
 
 
 ;; On POSIX systems there are four cases to distinguish:
@@ -589,19 +540,21 @@ FILE is created there."
 
 (defvar gamegrid-shared-game-dir)
 
-(defun gamegrid-add-score-with-update-game-score (file score)
+(defun gamegrid-add-score-with-update-game-score (file score &optional reverse)
   (let* ((update-game-score-modes
 	  (file-modes (expand-file-name "update-game-score" exec-directory)))
 	 (gamegrid-shared-game-dir
 	  (not (zerop (logand #o6000 (or update-game-score-modes 0))))))
     (cond ((or (not update-game-score-modes) (file-name-absolute-p file))
-	   (gamegrid-add-score-insecure file score))
+	   (gamegrid-add-score-insecure file score
+                                        gamegrid-user-score-file-directory
+                                        reverse))
 	  ((and gamegrid-shared-game-dir
 		(file-exists-p (expand-file-name file shared-game-score-directory)))
 	   ;; Use the setgid (or setuid) "update-game-score" program
 	   ;; to update a system-wide score file.
 	   (gamegrid-add-score-with-update-game-score-1 file
-	    (expand-file-name file shared-game-score-directory) score))
+	    (expand-file-name file shared-game-score-directory) score reverse))
 	  ;; Else: Add the score to a score file in the user's home
 	  ;; directory.
 	  (gamegrid-shared-game-dir
@@ -611,7 +564,8 @@ FILE is created there."
 		    (directory-file-name gamegrid-user-score-file-directory))
 	     (make-directory gamegrid-user-score-file-directory t))
 	   (gamegrid-add-score-insecure file score
-					gamegrid-user-score-file-directory))
+					gamegrid-user-score-file-directory
+                                        reverse))
 	  (t
 	   (unless (file-exists-p
 		    (directory-file-name gamegrid-user-score-file-directory))
@@ -620,36 +574,29 @@ FILE is created there."
 				      gamegrid-user-score-file-directory)))
 	     (unless (file-exists-p f)
 	       (write-region "" nil f nil 'silent nil 'excl))
-	     (gamegrid-add-score-with-update-game-score-1 file f score))))))
+	     (gamegrid-add-score-with-update-game-score-1 file f score reverse))))))
 
-(defun gamegrid-add-score-with-update-game-score-1 (file target score)
+(defun gamegrid-add-score-with-update-game-score-1 (file target score &optional reverse)
   (let ((default-directory "/")
 	(errbuf (generate-new-buffer " *update-game-score loss*"))
         (marker-string (concat
 			(user-full-name)
-			" <"
-			(cond ((fboundp 'user-mail-address)
-			       (user-mail-address))
-			      ((boundp 'user-mail-address)
-			       user-mail-address)
-			      (t ""))
-			">  "
+			" <" user-mail-address ">  "
 			(current-time-string))))
     ;; This can be called from a timer, so enable local quits.
     (with-local-quit
       (apply
        'call-process
-       (append
-	(list
-	 (expand-file-name "update-game-score" exec-directory)
-	 nil errbuf nil
-	 "-m" (int-to-string gamegrid-score-file-length)
-	 "-d" (if gamegrid-shared-game-dir
-		  (expand-file-name shared-game-score-directory)
-		(file-name-directory target))
-	 file
-	 (int-to-string score)
-	 marker-string))))
+       `(,(expand-file-name "update-game-score" exec-directory)
+         nil ,errbuf nil
+         "-m" ,(int-to-string gamegrid-score-file-length)
+         "-d" ,(if gamegrid-shared-game-dir
+                   (expand-file-name shared-game-score-directory)
+                 (file-name-directory target))
+         ,@(if reverse '("-r"))
+         ,file
+         ,(int-to-string score)
+         ,marker-string)))
     (if (buffer-modified-p errbuf)
 	(progn
 	  (display-buffer errbuf)
@@ -663,16 +610,19 @@ FILE is created there."
 	      (revert-buffer nil t nil)
 	      (display-buffer buf))
 	  (find-file-read-only target))
+        (view-mode)
         (goto-char (point-min))
         (search-forward (concat (int-to-string score)
 				" " (user-login-name) " "
 				marker-string) nil t)
         (beginning-of-line)))))
 
-(defun gamegrid-add-score-insecure (file score &optional directory)
+(defun gamegrid-add-score-insecure (file score &optional directory reverse)
   (save-excursion
     (setq file (expand-file-name file (or directory
 					  temporary-file-directory)))
+    (unless (file-exists-p (file-name-directory file))
+      (make-directory (file-name-directory file) t))
     (find-file-other-window file)
     (setq buffer-read-only nil)
     (goto-char (point-max))
@@ -680,18 +630,16 @@ FILE is created there."
 		    score
 		    (current-time-string)
 		    (user-full-name)
-		    (cond ((fboundp 'user-mail-address)
-			   (user-mail-address))
-			  ((boundp 'user-mail-address)
-			   user-mail-address)
-			  (t ""))))
+		    user-mail-address))
     (sort-fields 1 (point-min) (point-max))
-    (reverse-region (point-min) (point-max))
+    (unless reverse
+      (reverse-region (point-min) (point-max)))
     (goto-char (point-min))
     (forward-line gamegrid-score-file-length)
     (delete-region (point) (point-max))
     (setq buffer-read-only t)
-    (save-buffer)))
+    (save-buffer)
+    (view-mode)))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

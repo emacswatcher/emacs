@@ -1,5 +1,5 @@
 /* NeXT/Open/GNUstep / macOS Cocoa selection processing for emacs.
-   Copyright (C) 1993-1994, 2005-2006, 2008-2019 Free Software
+   Copyright (C) 1993-1994, 2005-2006, 2008-2021 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -57,8 +57,8 @@ symbol_to_nsstring (Lisp_Object sym)
   if (EQ (sym, QCLIPBOARD))   return NSPasteboardNameGeneral;
   if (EQ (sym, QPRIMARY))     return NXPrimaryPboard;
   if (EQ (sym, QSECONDARY))   return NXSecondaryPboard;
-  if (EQ (sym, QTEXT))        return NSStringPboardType;
-  return [NSString stringWithUTF8String: SSDATA (SYMBOL_NAME (sym))];
+  if (EQ (sym, QTEXT))        return NSPasteboardTypeString;
+  return [NSString stringWithLispString: SYMBOL_NAME (sym)];
 }
 
 static NSPasteboard *
@@ -76,11 +76,17 @@ ns_string_to_symbol (NSString *t)
     return QPRIMARY;
   if ([t isEqualToString: NXSecondaryPboard])
     return QSECONDARY;
-  if ([t isEqualToString: NSStringPboardType])
+  if ([t isEqualToString: NSPasteboardTypeString])
     return QTEXT;
-  if ([t isEqualToString: NSFilenamesPboardType])
+  if ([t isEqualToString:
+#if NS_USE_NSPasteboardTypeFileURL != 0
+           NSPasteboardTypeFileURL
+#else
+           NSFilenamesPboardType
+#endif
+       ])
     return QFILE_NAME;
-  if ([t isEqualToString: NSTabularTextPboardType])
+  if ([t isEqualToString: NSPasteboardTypeTabularText])
     return QTEXT;
   return intern ([t UTF8String]);
 }
@@ -114,7 +120,7 @@ clean_local_selection_data (Lisp_Object obj)
 
       if (size == 1)
         return clean_local_selection_data (AREF (obj, 0));
-      copy = make_uninit_vector (size);
+      copy = make_nil_vector (size);
       for (i = 0; i < size; i++)
         ASET (copy, i, clean_local_selection_data (AREF (obj, i)));
       return copy;
@@ -170,17 +176,12 @@ ns_string_to_pasteboard_internal (id pb, Lisp_Object str, NSString *gtype)
     }
   else
     {
-      char *utfStr;
       NSString *type, *nsStr;
       NSEnumerator *tenum;
 
       CHECK_STRING (str);
 
-      utfStr = SSDATA (str);
-      nsStr = [[NSString alloc] initWithBytesNoCopy: utfStr
-                                             length: SBYTES (str)
-                                           encoding: NSUTF8StringEncoding
-                                       freeWhenDone: NO];
+      nsStr = [NSString stringWithLispString: str];
       // FIXME: Why those 2 different code paths?
       if (gtype == nil)
         {
@@ -193,10 +194,9 @@ ns_string_to_pasteboard_internal (id pb, Lisp_Object str, NSString *gtype)
       else
         {
 	  // Used for ns-own-selection-internal.
-	  eassert (gtype == NSStringPboardType);
+	  eassert (gtype == NSPasteboardTypeString);
           [pb setString: nsStr forType: gtype];
         }
-      [nsStr release];
       ns_store_pb_change_count (pb);
     }
 }
@@ -345,7 +345,7 @@ anything that the functions on `selection-converter-alist' know about.  */)
   }
 
   /* We only support copy of text.  */
-  type = NSStringPboardType;
+  type = NSPasteboardTypeString;
   target_symbol = ns_string_to_symbol (type);
   if (STRINGP (value))
     {
@@ -472,9 +472,14 @@ nxatoms_of_nsselect (void)
 	     [NSNumber numberWithLong:0], NSPasteboardNameGeneral,
 	     [NSNumber numberWithLong:0], NXPrimaryPboard,
 	     [NSNumber numberWithLong:0], NXSecondaryPboard,
-	     [NSNumber numberWithLong:0], NSStringPboardType,
-	     [NSNumber numberWithLong:0], NSFilenamesPboardType,
-	     [NSNumber numberWithLong:0], NSTabularTextPboardType,
+	     [NSNumber numberWithLong:0], NSPasteboardTypeString,
+	     [NSNumber numberWithLong:0],
+#if NS_USE_NSPasteboardTypeFileURL != 0
+                                          NSPasteboardTypeFileURL,
+#else
+                                          NSFilenamesPboardType,
+#endif
+	     [NSNumber numberWithLong:0], NSPasteboardTypeTabularText,
 	 nil] retain];
 }
 

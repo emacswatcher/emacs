@@ -1,9 +1,8 @@
-;;; mh-folder.el --- MH-Folder mode
+;;; mh-folder.el --- MH-Folder mode  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2003, 2005-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2003, 2005-2021 Free Software Foundation, Inc.
 
 ;; Author: Bill Wohler <wohler@newt.com>
-;; Maintainer: Bill Wohler <wohler@newt.com>
 ;; Keywords: mail
 ;; See: mh-e.el
 
@@ -26,13 +25,10 @@
 
 ;; Mode for browsing folders
 
-;;; Change Log:
-
 ;;; Code:
 
 (require 'mh-e)
 (require 'mh-scan)
-(mh-require-cl)
 
 ;; Dynamically-created functions not found in mh-loaddefs.el.
 (autoload 'mh-tool-bar-folder-buttons-init "mh-tool-bar")
@@ -81,16 +77,14 @@ the MH mail system."
     (add-to-list 'desktop-buffer-mode-handlers
                  '(mh-folder-mode . mh-restore-desktop-buffer)))
 
-(defun mh-restore-desktop-buffer (desktop-buffer-file-name
-                                  desktop-buffer-name
-                                  desktop-buffer-misc)
+(defun mh-restore-desktop-buffer (_file-name name _misc)
   "Restore an MH folder buffer specified in a desktop file.
-When desktop creates a buffer, DESKTOP-BUFFER-FILE-NAME holds the
-file name to visit, DESKTOP-BUFFER-NAME holds the desired buffer
-name, and DESKTOP-BUFFER-MISC holds a list of miscellaneous info
+When desktop creates a buffer, FILE-NAME holds the
+file name to visit, NAME holds the desired buffer
+name, and MISC holds a list of miscellaneous info
 used by the `desktop-buffer-mode-handlers' functions."
   (mh-find-path)
-  (mh-visit-folder desktop-buffer-name)
+  (mh-visit-folder name)
   (current-buffer))
 
 
@@ -213,10 +207,10 @@ annotation.")
 
 ;; Use defalias to make sure the documented primary key bindings
 ;; appear in menu lists.
-(defalias 'mh-alt-show 'mh-show)
-(defalias 'mh-alt-refile-msg 'mh-refile-msg)
-(defalias 'mh-alt-send 'mh-send)
-(defalias 'mh-alt-visit-folder 'mh-visit-folder)
+(defalias 'mh-alt-show #'mh-show)
+(defalias 'mh-alt-refile-msg #'mh-refile-msg)
+(defalias 'mh-alt-send #'mh-send)
+(defalias 'mh-alt-visit-folder #'mh-visit-folder)
 
 ;; Save the "b" binding for a future `back'. Maybe?
 (gnus-define-keys  mh-folder-mode-map
@@ -654,15 +648,16 @@ perform the operation on all messages in that region.
   (auto-save-mode -1)
   (setq buffer-offer-save t)
   (mh-make-local-hook (mh-write-file-functions))
-  (add-hook (mh-write-file-functions) 'mh-execute-commands nil t)
+  (add-hook (mh-write-file-functions) #'mh-execute-commands nil t)
   (make-local-variable 'revert-buffer-function)
   (make-local-variable 'hl-line-mode)   ; avoid pollution
   (mh-funcall-if-exists hl-line-mode 1)
-  (setq revert-buffer-function 'mh-undo-folder)
+  (setq revert-buffer-function #'mh-undo-folder)
   (add-to-list 'minor-mode-alist '(mh-showing-mode " Show"))
-  (easy-menu-add mh-folder-sequence-menu)
-  (easy-menu-add mh-folder-message-menu)
-  (easy-menu-add mh-folder-folder-menu)
+  (mh-do-in-xemacs
+    (easy-menu-add mh-folder-sequence-menu)
+    (easy-menu-add mh-folder-message-menu)
+    (easy-menu-add mh-folder-folder-menu))
   (mh-inc-spool-make)
   (mh-set-help mh-folder-mode-help-messages)
   (if (and (featurep 'xemacs)
@@ -933,9 +928,9 @@ many unread messages to skip."
                (setq count (1- count)))
              (not (car unread-sequence)))
            (message "No more unread messages"))
-          (t (loop for msg in unread-sequence
-                   when (mh-goto-msg msg t) return nil
-                   finally (message "No more unread messages"))))))
+          (t (cl-loop for msg in unread-sequence
+                      when (mh-goto-msg msg t) return nil
+                      finally (message "No more unread messages"))))))
 
 ;;;###mh-autoload
 (defun mh-page-msg (&optional lines)
@@ -1031,9 +1026,9 @@ many unread messages to skip."
                (setq count (1- count)))
              (not (car unread-sequence)))
            (message "No more unread messages"))
-          (t (loop for msg in unread-sequence
-                   when (mh-goto-msg msg t) return nil
-                   finally (message "No more unread messages"))))))
+          (t (cl-loop for msg in unread-sequence
+                      when (mh-goto-msg msg t) return nil
+                      finally (message "No more unread messages"))))))
 
 ;;;###mh-autoload
 (defun mh-quit ()
@@ -1120,7 +1115,7 @@ called interactively."
          (message "Destination folder: %s" (cdr mh-last-destination)))
         (t
          (mh-iterate-on-range msg range
-           (apply 'mh-write-msg-to-file msg (cdr mh-last-destination)))
+           (apply #'mh-write-msg-to-file msg (cdr mh-last-destination)))
          (mh-next-msg interactive-flag))))
 
 ;;;###mh-autoload
@@ -1504,7 +1499,7 @@ function doesn't recenter the folder buffer."
          (let ((lines-from-end 2))
            (save-excursion
              (while (> (point-max) (progn (forward-line) (point)))
-               (incf lines-from-end)))
+               (cl-incf lines-from-end)))
            (recenter (- lines-from-end))))
         ;; '(4) is the same as C-u prefix argument.
         (t (recenter (or arg '(4))))))
@@ -1588,10 +1583,11 @@ after the commands are processed."
                      ;; Preserve sequences in destination folder...
                      (when mh-refile-preserves-sequences-flag
                        (clrhash dest-map)
-                       (loop for i from (1+ (or last 0))
-                             for msg in (sort (copy-sequence msgs) #'<)
-                             do (loop for seq-name in (gethash msg seq-map)
-                                      do (push i (gethash seq-name dest-map))))
+                       (cl-loop
+                        for i from (1+ (or last 0))
+                        for msg in (sort (copy-sequence msgs) #'<)
+                        do (cl-loop for seq-name in (gethash msg seq-map)
+                                    do (push i (gethash seq-name dest-map))))
                        (maphash
                         #'(lambda (seq msgs)
                             ;; Can't be run in the background, since the
@@ -1608,7 +1604,7 @@ after the commands are processed."
       ;; Now delete messages
       (cond (mh-delete-list
              (setq redraw-needed-flag t)
-             (apply 'mh-exec-cmd "rmm" folder
+             (apply #'mh-exec-cmd "rmm" folder
                     (mh-coalesce-msg-list mh-delete-list))
              (mh-delete-scan-msgs mh-delete-list)
              (setq mh-delete-list nil)))
@@ -1622,8 +1618,8 @@ after the commands are processed."
           ;; (mh-refile-a-msg nil (intern dest))
           ;; (mh-delete-a-msg nil)))
           (if (null dest)
-              (apply 'mh-exec-cmd "rmm" folder msg-list)
-            (apply 'mh-exec-cmd "refile" "-src" folder dest msg-list)
+              (apply #'mh-exec-cmd "rmm" folder msg-list)
+            (apply #'mh-exec-cmd "refile" "-src" folder dest msg-list)
             (push dest folders-changed))
           (setq redraw-needed-flag t)
           (mh-delete-scan-msgs mh-blacklist)
@@ -1640,10 +1636,10 @@ after the commands are processed."
           (mh-delete-scan-msgs mh-whitelist)
           (when mh-whitelist-preserves-sequences-flag
             (clrhash white-map)
-            (loop for i from (1+ (or last 0))
-                  for msg in (sort (copy-sequence mh-whitelist) #'<)
-                  do (loop for seq-name in (gethash msg seq-map)
-                           do (push i (gethash seq-name white-map))))
+            (cl-loop for i from (1+ (or last 0))
+                     for msg in (sort (copy-sequence mh-whitelist) #'<)
+                     do (cl-loop for seq-name in (gethash msg seq-map)
+                                 do (push i (gethash seq-name white-map))))
             (maphash
              #'(lambda (seq msgs)
                  ;; Can't be run in background, since the current
@@ -1705,7 +1701,7 @@ after the commands are processed."
       (mh-recenter nil)))
 
 ;;;###mh-autoload
-(defun mh-make-folder-mode-line (&optional ignored)
+(defun mh-make-folder-mode-line (&optional _ignored)
   "Set the fields of the mode line for a folder buffer.
 The optional argument is now obsolete and IGNORED. It used to be
 used to pass in what is now stored in the buffer-local variable
@@ -1923,10 +1919,11 @@ exist."
           (from (or (message-fetch-field "from") ""))
           folder-name)
       (setq folder-name
-            (loop for list in mh-default-folder-list
-                  when (string-match (nth 0 list) (if (nth 2 list) to/cc from))
-                  return (nth 1 list)
-                  finally return nil))
+            (cl-loop for list in mh-default-folder-list
+                     when (string-match (nth 0 list)
+                                        (if (nth 2 list) to/cc from))
+                     return (nth 1 list)
+                     finally return nil))
 
       ;; Make sure a result from `mh-default-folder-list' begins with "+"
       ;; since 'mh-expand-file-name below depends on it
@@ -2027,8 +2024,8 @@ If MSG is nil then act on the message at point"
           (t
            (dolist (folder-msg-list mh-refile-list)
              (setf (cdr folder-msg-list) (remove msg (cdr folder-msg-list))))
-           (setq mh-refile-list (loop for x in mh-refile-list
-                                      unless (null (cdr x)) collect x))))
+           (setq mh-refile-list (cl-loop for x in mh-refile-list
+                                         unless (null (cdr x)) collect x))))
     (mh-notate nil ?  mh-cmd-note)))
 
 ;;;###mh-autoload

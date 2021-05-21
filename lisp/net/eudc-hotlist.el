@@ -1,6 +1,6 @@
-;;; eudc-hotlist.el --- hotlist management for EUDC
+;;; eudc-hotlist.el --- hotlist management for EUDC  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1998-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2021 Free Software Foundation, Inc.
 
 ;; Author: Oscar Figueiredo <oscar@cpe.fr>
 ;;         Pavel Janík <Pavel@Janik.cz>
@@ -37,12 +37,12 @@
 
 (defvar eudc-hotlist-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map "a" 'eudc-hotlist-add-server)
-    (define-key map "d" 'eudc-hotlist-delete-server)
-    (define-key map "s" 'eudc-hotlist-select-server)
-    (define-key map "t" 'eudc-hotlist-transpose-servers)
-    (define-key map "q" 'eudc-hotlist-quit-edit)
-    (define-key map "x" 'kill-current-buffer)
+    (define-key map "a" #'eudc-hotlist-add-server)
+    (define-key map "d" #'eudc-hotlist-delete-server)
+    (define-key map "s" #'eudc-hotlist-select-server)
+    (define-key map "t" #'eudc-hotlist-transpose-servers)
+    (define-key map "q" #'eudc-hotlist-quit-edit)
+    (define-key map "x" #'kill-current-buffer)
     map))
 
 (define-derived-mode eudc-hotlist-mode fundamental-mode "EUDC-Servers"

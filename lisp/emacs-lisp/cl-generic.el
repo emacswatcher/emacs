@@ -1,6 +1,6 @@
 ;;; cl-generic.el --- CLOS-style generic functions for Elisp  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2015-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2021 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Version: 1.0
@@ -22,7 +22,7 @@
 
 ;;; Commentary:
 
-;; This implements the most of CLOS's multiple-dispatch generic functions.
+;; This implements most of CLOS's multiple-dispatch generic functions.
 ;; To use it you need either (require 'cl-generic) or (require 'cl-lib).
 ;; The main entry points are: `cl-defgeneric' and `cl-defmethod'.
 
@@ -189,6 +189,32 @@ SPECIALIZERS-FUNCTION takes as first argument a tag value TAG
       (setf (cl--generic name) (setq generic (cl--generic-make name))))
     generic))
 
+(defvar cl--generic-edebug-name nil)
+
+(defun cl--generic-edebug-remember-name (name pf &rest specs)
+  ;; Remember the name in `cl-defgeneric' so we can use it when building
+  ;; the names of its `:methods'.
+  (let ((cl--generic-edebug-name (car name)))
+    (funcall pf specs)))
+
+(defun cl--generic-edebug-make-name (in:method _oldname &rest quals-and-args)
+  ;; The name to use in Edebug for a method: use the generic
+  ;; function's name plus all its qualifiers and finish with
+  ;; its specializers.
+  (pcase-let*
+      ((basename (if in:method cl--generic-edebug-name (pop quals-and-args)))
+       (args (car (last quals-and-args)))
+       (`(,spec-args . ,_) (cl--generic-split-args args))
+       (specializers (mapcar (lambda (spec-arg)
+                               (if (eq '&context (car-safe (car spec-arg)))
+                                   spec-arg (cdr spec-arg)))
+                             spec-args)))
+    (format "%s %s"
+            (mapconcat (lambda (sexp) (format "%s" sexp))
+                       (cons basename (butlast quals-and-args))
+                       " ")
+            specializers)))
+
 ;;;###autoload
 (defmacro cl-defgeneric (name args &rest options-and-methods)
   "Create a generic function NAME.
@@ -206,15 +232,22 @@ DEFAULT-BODY, if present, is used as the body of a default method.
 \(fn NAME ARGS [DOC-STRING] [OPTIONS-AND-METHODS...] &rest DEFAULT-BODY)"
   (declare (indent 2) (doc-string 3)
            (debug
-            (&define [&or name ("setf" name :name setf)] listp
-                     lambda-doc
-                     [&rest [&or
-                             ("declare" &rest sexp)
-                             (":argument-precedence-order" &rest sexp)
-                             (&define ":method" [&rest atom]
-                                      cl-generic-method-args lambda-doc
-                                      def-body)]]
-                     def-body)))
+            (&define
+             &interpose
+             [&name sexp] ;Allow (setf ...) additionally to symbols.
+             cl--generic-edebug-remember-name
+             listp lambda-doc
+             [&rest [&or
+                     ("declare" &rest sexp)
+                     (":argument-precedence-order" &rest sexp)
+                     (&define ":method"
+                              [&name
+                               [[&rest cl-generic--method-qualifier-p]
+                                listp] ;Formal args
+                               cl--generic-edebug-make-name in:method]
+                              lambda-doc
+                              def-body)]]
+             def-body)))
   (let* ((doc (if (stringp (car-safe options-and-methods))
                   (pop options-and-methods)))
          (declarations nil)
@@ -238,6 +271,7 @@ DEFAULT-BODY, if present, is used as the body of a default method.
       (push `(,args ,@options-and-methods) methods))
     (when (eq 'setf (car-safe name))
       (require 'gv)
+      (declare-function gv-setter "gv" (name))
       (setq name (gv-setter (cadr name))))
     `(prog1
          (progn
@@ -294,15 +328,6 @@ the specializer used will be the one returned by BODY."
           (lambda ,args ,@body))))
 
 (eval-and-compile         ;Needed while compiling the cl-defmethod calls below!
-  (defun cl--generic-fgrep (vars sexp)    ;Copied from pcase.el.
-    "Check which of the symbols VARS appear in SEXP."
-    (let ((res '()))
-      (while (consp sexp)
-        (dolist (var (cl--generic-fgrep vars (pop sexp)))
-          (unless (memq var res) (push var res))))
-      (and (memq sexp vars) (not (memq sexp res)) (push sexp res))
-      res))
-
   (defun cl--generic-split-args (args)
     "Return (SPEC-ARGS . PLAIN-ARGS)."
     (let ((plain-args ())
@@ -365,11 +390,11 @@ the specializer used will be the one returned by BODY."
                 ;; is used.
                 ;; FIXME: Also, optimize the case where call-next-method is
                 ;; only called with explicit arguments.
-                (uses-cnm (cl--generic-fgrep (list cnm nmp) nbody)))
+                (uses-cnm (macroexp--fgrep `((,cnm) (,nmp)) nbody)))
            (cons (not (not uses-cnm))
                  `#'(lambda (,@(if uses-cnm (list cnm)) ,@args)
                       ,@(car parsed-body)
-                      ,(if (not (memq nmp uses-cnm))
+                      ,(if (not (assq nmp uses-cnm))
                            nbody
                          `(let ((,nmp (lambda ()
                                         (cl--generic-isnot-nnm-p ,cnm))))
@@ -397,18 +422,45 @@ the specializer used will be the one returned by BODY."
       (let ((combined-doc (buffer-string)))
         (if ud (help-add-fundoc-usage combined-doc (car ud)) combined-doc)))))
 
+(defun cl-generic--method-qualifier-p (x)
+  (not (listp x)))
+
+(defun cl--defmethod-doc-pos ()
+  "Return the index of the docstring for a `cl-defmethod'.
+Presumes point is at the end of the `cl-defmethod' symbol."
+  (save-excursion
+    (let ((n 2))
+      (while (and (ignore-errors (forward-sexp 1) t)
+                  (not (eq (char-before) ?\))))
+        (cl-incf n))
+      n)))
+
 ;;;###autoload
 (defmacro cl-defmethod (name args &rest body)
   "Define a new method for generic function NAME.
-I.e. it defines the implementation of NAME to use for invocations where the
-values of the dispatch arguments match the specified TYPEs.
+This defines an implementation of NAME to use for invocations
+of specific types of arguments.
+
+ARGS is a list of dispatch arguments (see `cl-defun'), but where
+each variable element is either just a single variable name VAR,
+or a list on the form (VAR TYPE).
+
+For instance:
+
+  (cl-defmethod foo (bar (format-string string) &optional zot)
+    (format format-string bar))
+
 The dispatch arguments have to be among the mandatory arguments, and
 all methods of NAME have to use the same set of arguments for dispatch.
 Each dispatch argument and TYPE are specified in ARGS where the corresponding
 formal argument appears as (VAR TYPE) rather than just VAR.
 
-The optional second argument QUALIFIER is a specifier that
-modifies how the method is combined with other methods, including:
+The optional EXTRA element, on the form `:extra STRING', allows
+you to add more methods for the same specializers and qualifiers.
+These are distinguished by STRING.
+
+The optional argument QUALIFIER is a specifier that modifies how
+the method is combined with other methods, including:
    :before  - Method will be called before the primary
    :after   - Method will be called after the primary
    :around  - Method will be called around everything else
@@ -425,32 +477,31 @@ method to be applicable.
 The set of acceptable TYPEs (also called \"specializers\") is defined
 \(and can be extended) by the various methods of `cl-generic-generalizers'.
 
-\(fn NAME [QUALIFIER] ARGS &rest [DOCSTRING] BODY)"
-  (declare (doc-string 3) (indent defun)
+\(fn NAME [EXTRA] [QUALIFIER] ARGS &rest [DOCSTRING] BODY)"
+  (declare (doc-string cl--defmethod-doc-pos) (indent defun)
            (debug
             (&define                    ; this means we are defining something
-             [&or name ("setf" name :name setf)]
-             ;; ^^ This is the methods symbol
-             [ &rest atom ]         ; Multiple qualifiers are allowed.
-                                    ; Like in CLOS spec, we support
-                                    ; any non-list values.
-             cl-generic-method-args     ; arguments
+             [&name [sexp   ;Allow (setf ...) additionally to symbols.
+                     [&rest cl-generic--method-qualifier-p] ;qualifiers
+                     listp]             ; arguments
+                    cl--generic-edebug-make-name nil]
              lambda-doc                 ; documentation string
              def-body)))                ; part to be debugged
   (let ((qualifiers nil))
-    (while (not (listp args))
+    (while (cl-generic--method-qualifier-p args)
       (push args qualifiers)
       (setq args (pop body)))
     (when (eq 'setf (car-safe name))
       (require 'gv)
+      (declare-function gv-setter "gv" (name))
       (setq name (gv-setter (cadr name))))
     (pcase-let* ((`(,uses-cnm . ,fun) (cl--generic-lambda args body)))
       `(progn
          ,(and (get name 'byte-obsolete-info)
                (or (not (fboundp 'byte-compile-warning-enabled-p))
-                   (byte-compile-warning-enabled-p 'obsolete))
+                   (byte-compile-warning-enabled-p 'obsolete name))
                (let* ((obsolete (get name 'byte-obsolete-info)))
-                 (macroexp--warn-and-return
+                 (macroexp-warn-and-return
                   (macroexp--obsolete-warning name obsolete "generic function")
                   nil)))
          ;; You could argue that `defmethod' modifies rather than defines the
@@ -597,11 +648,11 @@ The set of acceptable TYPEs (also called \"specializers\") is defined
             (lambda (,@fixedargs &rest args)
               (let ,bindings
                 (apply (cl--generic-with-memoization
-                        (gethash ,tag-exp method-cache)
-                        (cl--generic-cache-miss
-                         generic ',dispatch-arg dispatches-left methods
-                         ,(if (cdr typescodes)
-                              `(append ,@typescodes) (car typescodes))))
+                           (gethash ,tag-exp method-cache)
+                         (cl--generic-cache-miss
+                          generic ',dispatch-arg dispatches-left methods
+                          ,(if (cdr typescodes)
+                               `(append ,@typescodes) (car typescodes))))
                        ,@fixedargs args)))))))))
 
 (defun cl--generic-make-function (generic)
@@ -791,8 +842,8 @@ It should return a function that expects the same arguments as the methods, and
 GENERIC is the generic function (mostly used for its name).
 METHODS is the list of the selected methods.
 The METHODS list is sorted from most specific first to most generic last.
-The function can use `cl-generic-call-method' to create functions that call those
-methods.")
+The function can use `cl-generic-call-method' to create functions that call
+those methods.")
 
 (unless (ignore-errors (cl-generic-generalizers t))
   ;; Temporary definition to let the next defmethod succeed.
@@ -909,7 +960,7 @@ Can only be used from within the lexical body of a primary or around method."
 ;;; Add support for describe-function
 
 (defun cl--generic-search-method (met-name)
-  "For `find-function-regexp-alist'. Searches for a cl-defmethod.
+  "For `find-function-regexp-alist'.  Searches for a cl-defmethod.
 MET-NAME is as returned by `cl--generic-load-hist-format'."
   (let ((base-re (concat "(\\(?:cl-\\)?defmethod[ \t]+"
                          (regexp-quote (format "%s" (car met-name)))
@@ -1090,7 +1141,8 @@ These match if the argument is a cons cell whose car is `eql' to VAL."
   (if (not (eq (car-safe specializer) 'head))
       (cl-call-next-method)
     (cl--generic-with-memoization
-        (gethash (cadr specializer) cl--generic-head-used) specializer)
+        (gethash (cadr specializer) cl--generic-head-used)
+      specializer)
     (list cl--generic-head-generalizer)))
 
 (cl--generic-prefill-dispatchers 0 (head eql))

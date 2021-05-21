@@ -1,6 +1,6 @@
-;;; fortune.el --- use fortune to create signatures
+;;; fortune.el --- use fortune to create signatures  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1999, 2001-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1999, 2001-2021 Free Software Foundation, Inc.
 
 ;; Author: Holger Schauer <Holger.Schauer@gmx.de>
 ;; Keywords: games utils mail
@@ -63,76 +63,75 @@
   :link '(emacs-commentary-link "fortune.el")
   :version "21.1"
   :group 'games)
+
+(defcustom fortune-dir "~/docs/ascii/misc/fortunes/"
+  "The directory to look in for local fortune cookies files."
+  :type 'directory)
+
+(defcustom fortune-file
+  (expand-file-name "usenet" fortune-dir)
+  "The file in which local fortune cookies will be stored."
+  :type 'file)
+
+(defcustom fortune-database-extension  ".dat"
+  "The extension of the corresponding fortune database.
+Normally you won't have a reason to change it."
+  :type 'string)
+
+(defcustom fortune-program "fortune"
+  "Program to select a fortune cookie."
+  :type 'string)
+
+(defcustom fortune-program-options ()
+  "List of options to pass to the fortune program."
+  :type '(choice (repeat (string :tag "Option"))
+                 (string :tag "Obsolete string of options"))
+  :version "23.1")
+
+(defcustom fortune-strfile "strfile"
+  "Program to compute a new fortune database."
+  :type 'string)
+
+(defcustom fortune-strfile-options ""
+  "Options to pass to the strfile program (a string)."
+  :type 'string)
+
+(defcustom fortune-quiet-strfile-options (concat "> " null-device)
+  "Text added to the command for running `strfile'.
+By default it discards the output produced by `strfile'.
+Set this to \"\" if you would like to see the output."
+  :type 'string)
+
+(defcustom fortune-always-compile t
+  "Non-nil means automatically compile fortune files.
+If nil, you must invoke `fortune-compile' manually to do that."
+  :type 'boolean)
+
 (defgroup fortune-signature nil
   "Settings for use of fortune for signatures."
   :group 'fortune
   :group 'mail)
 
-(defcustom fortune-dir "~/docs/ascii/misc/fortunes/"
-  "The directory to look in for local fortune cookies files."
-  :type 'directory
-  :group 'fortune)
-(defcustom fortune-file
-  (expand-file-name "usenet" fortune-dir)
-  "The file in which local fortune cookies will be stored."
-  :type 'file
-  :group 'fortune)
-(defcustom fortune-database-extension  ".dat"
-  "The extension of the corresponding fortune database.
-Normally you won't have a reason to change it."
-  :type 'string
-  :group 'fortune)
-(defcustom fortune-program "fortune"
-  "Program to select a fortune cookie."
-  :type 'string
-  :group 'fortune)
-(defcustom fortune-program-options ()
-  "List of options to pass to the fortune program."
-  :type '(choice (repeat (string :tag "Option"))
-                 (string :tag "Obsolete string of options"))
-  :version "23.1"
-  :group 'fortune)
-(defcustom fortune-strfile "strfile"
-  "Program to compute a new fortune database."
-  :type 'string
-  :group 'fortune)
-(defcustom fortune-strfile-options ""
-  "Options to pass to the strfile program (a string)."
-  :type 'string
-  :group 'fortune)
-(defcustom fortune-quiet-strfile-options "> /dev/null"
-  "Text added to the command for running `strfile'.
-By default it discards the output produced by `strfile'.
-Set this to \"\" if you would like to see the output."
-  :type 'string
-  :group 'fortune)
-
-(defcustom fortune-always-compile t
-  "Non-nil means automatically compile fortune files.
-If nil, you must invoke `fortune-compile' manually to do that."
-  :type 'boolean
-  :group 'fortune)
 (defcustom fortune-author-line-prefix "                  -- "
   "Prefix to put before the author name of a fortunate."
-  :type 'string
-  :group 'fortune-signature)
+  :type 'string)
+
 (defcustom fortune-fill-column fill-column
   "Fill column for fortune files."
-  :type 'integer
-  :group 'fortune-signature)
+  :type 'integer)
+
 (defcustom fortune-from-mail "private e-mail"
   "String to use to characterize that the fortune comes from an e-mail.
 No need to add an `in'."
-  :type 'string
-  :group 'fortune-signature)
+  :type 'string)
+
 (defcustom fortune-sigstart ""
   "Some text to insert before the fortune cookie, in a mail signature."
-  :type 'string
-  :group 'fortune-signature)
+  :type 'string)
+
 (defcustom fortune-sigend ""
   "Some text to insert after the fortune cookie, in a mail signature."
-  :type 'string
-  :group 'fortune-signature)
+  :type 'string)
 
 
 ;; not customizable settings
@@ -237,21 +236,23 @@ read the file name to use.  Otherwise use the value of `fortune-file'."
 If called with a prefix asks for the FILE to compile, otherwise uses
 the value of `fortune-file'.  This currently cannot handle directories."
   (interactive
-    (list
-     (if current-prefix-arg
-	 (fortune-ask-file)
-       fortune-file)))
+   (list
+    (if current-prefix-arg
+	(fortune-ask-file)
+      fortune-file)))
   (let* ((fortune-file (expand-file-name (substitute-in-file-name file)))
 	 (fortune-dat (expand-file-name
 		       (substitute-in-file-name
-			(concat fortune-file fortune-database-extension)))))
-  (cond ((file-exists-p fortune-file)
-         (cond ((file-newer-than-file-p fortune-file fortune-dat)
-                (message "Compiling new fortune database %s" fortune-dat)
-                (shell-command
-                 (concat fortune-strfile fortune-strfile-options
-                         " " fortune-file fortune-quiet-strfile-options)))))
-	(t (error "Can't compile fortune file %s" fortune-file)))))
+			(concat fortune-file fortune-database-extension))))
+         (strfile (or (executable-find fortune-strfile)
+                      (error "Can't find strfile program %s" fortune-strfile))))
+    (cond ((file-exists-p fortune-file)
+           (cond ((file-newer-than-file-p fortune-file fortune-dat)
+                  (message "Compiling new fortune database %s" fortune-dat)
+                  (shell-command
+                   (concat strfile fortune-strfile-options
+                           " " fortune-file fortune-quiet-strfile-options)))))
+	  (t (error "Can't compile fortune file %s" fortune-file)))))
 
 
 ;;; **************
@@ -295,7 +296,7 @@ specifies the file to choose the fortune from."
         (erase-buffer)
         (if fortune-always-compile
             (fortune-compile fort-file))
-        (apply 'call-process
+        (apply #'call-process
                fortune-program            ; program to call
                nil fortune-buffer nil     ; INFILE BUFFER DISPLAY
                (append (if (stringp fortune-program-options)
@@ -332,7 +333,6 @@ and choose the directory as the fortune-file."
   (setq buffer-read-only t))
 
 
-;;; Provide ourselves.
 (provide 'fortune)
 
 ;;; fortune.el ends here

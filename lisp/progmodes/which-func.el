@@ -1,7 +1,6 @@
 ;;; which-func.el --- print current function in mode line  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1994, 1997-1998, 2001-2019 Free Software Foundation,
-;; Inc.
+;; Copyright (C) 1994-2021 Free Software Foundation, Inc.
 
 ;; Author:   Alex Rezinsky <alexr@msil.sps.mot.com>
 ;;           (doesn't seem to be responsive any more)
@@ -25,17 +24,17 @@
 ;;; Commentary:
 
 ;; This package prints name of function where your current point is
-;; located in mode line. It assumes that you work with imenu package
-;; and imenu--index-alist is up to date.
+;; located in mode line.  It assumes that you work with the imenu
+;; package and `imenu--index-alist' is up to date.
 
 ;; KNOWN BUGS
 ;; ----------
 ;; Really this package shows not "function where the current point is
 ;; located now", but "nearest function which defined above the current
-;; point". So if your current point is located after end of function
-;; FOO but before begin of function BAR, FOO will be displayed in mode
-;; line.
-;; - if two windows display the same buffer, both windows
+;; point".  So if your current point is located after the end of
+;; function FOO but before the beginning of function BAR, FOO will be
+;; displayed in the mode line.
+;; - If two windows display the same buffer, both windows
 ;;   show the same `which-func' information.
 
 ;; TODO LIST
@@ -44,7 +43,7 @@
 ;; function determination mechanism should be used to determine the end
 ;; of a function as well as the beginning of a function.
 ;;     2. This package should be realized with the help of overlay
-;; properties instead of imenu--index-alist variable.
+;; properties instead of the `imenu--index-alist' variable.
 
 ;;; History:
 
@@ -186,7 +185,7 @@ and you want to simplify them for the mode line
   "Non-nil means display current function name in mode line.
 This makes a difference only if `which-function-mode' is non-nil.")
 
-(add-hook 'find-file-hook 'which-func-ff-hook t)
+(add-hook 'after-change-major-mode-hook #'which-func-ff-hook t)
 
 (defun which-func-try-to-enable ()
   (unless (or (not which-function-mode)
@@ -195,7 +194,7 @@ This makes a difference only if `which-function-mode' is non-nil.")
                               (member major-mode which-func-modes)))))
 
 (defun which-func-ff-hook ()
-  "File find hook for Which Function mode.
+  "`after-change-major-mode-hook' for Which Function mode.
 It creates the Imenu index for the buffer, if necessary."
   (which-func-try-to-enable)
 
@@ -214,9 +213,10 @@ It creates the Imenu index for the buffer, if necessary."
      (setq which-func-mode nil))))
 
 (defun which-func-update ()
-  ;; "Update the Which-Function mode display for all windows."
+  "Update the Which-Function mode display for all windows."
   ;; (walk-windows 'which-func-update-1 nil 'visible))
-  (which-func-update-1 (selected-window)))
+  (let ((non-essential t))
+    (which-func-update-1 (selected-window))))
 
 (defun which-func-update-1 (window)
   "Update the Which Function mode display for window WINDOW."
@@ -282,52 +282,55 @@ If no function name is found, return nil."
     (when (null name)
       (setq name (add-log-current-defun)))
     ;; If Imenu is loaded, try to make an index alist with it.
+    ;; If `add-log-current-defun' ran and gave nil, accept that.
     (when (and (null name)
-	       (boundp 'imenu--index-alist)
-               (or (null imenu--index-alist)
-                   ;; Update if outdated
-                   (/= (buffer-chars-modified-tick) imenu-menubar-modified-tick))
-	       (null which-function-imenu-failed))
-      (ignore-errors (imenu--make-index-alist t))
-      (unless imenu--index-alist
-        (set (make-local-variable 'which-function-imenu-failed) t)))
-    ;; If we have an index alist, use it.
-    (when (and (null name)
-	       (boundp 'imenu--index-alist) imenu--index-alist)
-      (let ((alist imenu--index-alist)
-            (minoffset (point-max))
-            offset pair mark imstack namestack)
-        ;; Elements of alist are either ("name" . marker), or
-        ;; ("submenu" ("name" . marker) ... ). The list can be
-        ;; arbitrarily nested.
-        (while (or alist imstack)
-          (if (null alist)
-              (setq alist     (car imstack)
-                    namestack (cdr namestack)
-                    imstack   (cdr imstack))
+               (null add-log-current-defun-function))
+      (when (and (null name)
+	         (boundp 'imenu--index-alist)
+                 (or (null imenu--index-alist)
+                     ;; Update if outdated
+                     (/= (buffer-chars-modified-tick) imenu-menubar-modified-tick))
+	         (null which-function-imenu-failed))
+        (ignore-errors (imenu--make-index-alist t))
+        (unless imenu--index-alist
+          (setq-local which-function-imenu-failed t)))
+      ;; If we have an index alist, use it.
+      (when (and (null name)
+	         (boundp 'imenu--index-alist) imenu--index-alist)
+        (let ((alist imenu--index-alist)
+              (minoffset (point-max))
+              offset pair mark imstack namestack)
+          ;; Elements of alist are either ("name" . marker), or
+          ;; ("submenu" ("name" . marker) ... ). The list can be
+          ;; arbitrarily nested.
+          (while (or alist imstack)
+            (if (null alist)
+                (setq alist     (car imstack)
+                      namestack (cdr namestack)
+                      imstack   (cdr imstack))
 
-            (setq pair (car-safe alist)
-                  alist (cdr-safe alist))
+              (setq pair (car-safe alist)
+                    alist (cdr-safe alist))
 
-            (cond
-             ((atom pair))              ; Skip anything not a cons.
+              (cond
+               ((atom pair))            ; Skip anything not a cons.
 
-             ((imenu--subalist-p pair)
-              (setq imstack   (cons alist imstack)
-                    namestack (cons (car pair) namestack)
-                    alist     (cdr pair)))
+               ((imenu--subalist-p pair)
+                (setq imstack   (cons alist imstack)
+                      namestack (cons (car pair) namestack)
+                      alist     (cdr pair)))
 
-             ((or (number-or-marker-p (setq mark (cdr pair)))
-		  (and (overlayp mark)
-		       (setq mark (overlay-start mark))))
-              (when (and (>= (setq offset (- (point) mark)) 0)
-                         (< offset minoffset)) ; Find the closest item.
-                (setq minoffset offset
-                      name (if (null which-func-imenu-joiner-function)
-                               (car pair)
-                             (funcall
-                              which-func-imenu-joiner-function
-                              (reverse (cons (car pair) namestack))))))))))))
+               ((or (number-or-marker-p (setq mark (cdr pair)))
+		    (and (overlayp mark)
+		         (setq mark (overlay-start mark))))
+                (when (and (>= (setq offset (- (point) mark)) 0)
+                           (< offset minoffset)) ; Find the closest item.
+                  (setq minoffset offset
+                        name (if (null which-func-imenu-joiner-function)
+                                 (car pair)
+                               (funcall
+                                which-func-imenu-joiner-function
+                                (reverse (cons (car pair) namestack)))))))))))))
     ;; Filter the name if requested.
     (when name
       (if which-func-cleanup-function
@@ -353,7 +356,7 @@ This function is meant to be called from `ediff-select-hook'."
     (when ediff-window-C
       (which-func-update-1 ediff-window-C))))
 
-(add-hook 'ediff-select-hook 'which-func-update-ediff-windows)
+(add-hook 'ediff-select-hook #'which-func-update-ediff-windows)
 
 (provide 'which-func)
 

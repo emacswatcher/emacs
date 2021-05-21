@@ -1,6 +1,6 @@
 ;;; rng-loc.el --- Locate the schema to use for validation  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2003, 2007-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2003, 2007-2021 Free Software Foundation, Inc.
 
 ;; Author: James Clark
 ;; Keywords: wp, hypermedia, languages, XML, RelaxNG
@@ -182,7 +182,7 @@ If TYPE-ID is non-nil, then locate the schema for this TYPE-ID."
     (while files
       (setq type-ids (rng-possible-type-ids-using (car files) type-ids))
       (setq files (cdr files)))
-    (rng-uniquify-equal (sort type-ids 'string<))))
+    (seq-uniq (sort type-ids 'string<))))
 
 (defun rng-locate-schema-file-using (files)
   "Locate a schema using the schema locating files FILES.

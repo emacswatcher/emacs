@@ -1,21 +1,21 @@
 ;;; wdired-tests.el --- tests for wdired.el          -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2018-2021 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
-;; This program is free software; you can redistribute it and/or modify
+;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
 ;; (at your option) any later version.
 
-;; This program is distributed in the hope that it will be useful,
+;; GNU Emacs is distributed in the hope that it will be useful,
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;; GNU General Public License for more details.
 
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Code:
 
@@ -86,7 +86,11 @@ only the name before the link arrow."
     (let ((buf (find-file-noselect test-dir)))
       (unwind-protect
 	  (with-current-buffer buf
-            (make-symbolic-link "./bar/baz" link-name)
+            (skip-unless
+             ;; This check is for wdired, not symbolic links, so skip
+             ;; it when make-symbolic-link fails for any reason (like
+             ;; insufficient privileges).
+             (ignore-errors (make-symbolic-link "./bar/baz" link-name) t))
             (revert-buffer)
             (let* ((file-name (dired-get-filename))
                    (dir-part (file-name-directory file-name))
@@ -102,7 +106,6 @@ only the name before the link arrow."
   "Test editing a file name without saving the change.
 Finding the new name should be possible while still in
 wdired-mode."
-  :expected-result (if (< emacs-major-version 27) :failed :passed)
   (let* ((test-dir (make-temp-file "test-dir-" t))
 	 (test-file (concat (file-name-as-directory test-dir) "foo.c"))
 	 (replace "bar")
@@ -124,6 +127,73 @@ wdired-mode."
 	    (kill-buffer buf)))
 	(delete-directory test-dir t)))))
 
+(defvar server-socket-dir)
+(declare-function dired-smart-shell-command "dired-x"
+                  (command &optional output-buffer error-buffer))
+
+(ert-deftest wdired-test-bug34915 ()
+  "Test editing when dired-listing-switches includes -F.
+Appended file indicators should not count as part of the file
+name, either before or after editing.  Since
+dired-move-to-end-of-filename handles indicator characters, it
+suffices to compare the return values of dired-get-filename and
+wdired-get-filename before and after editing."
+  ;; FIXME: Add a test for a door (indicator ">") only under Solaris?
+  (let* ((test-dir (make-temp-file "test-dir-" t))
+         (server-socket-dir test-dir)
+         (dired-listing-switches "-Fl")
+         (dired-ls-F-marks-symlinks (eq system-type 'darwin))
+         (buf (find-file-noselect test-dir)))
+    (unwind-protect
+        (progn
+	  (with-current-buffer buf
+            (dired-create-empty-file "foo")
+            (set-file-modes "foo" (file-modes-symbolic-to-number "+x"))
+            (make-symbolic-link "foo" "bar")
+            (make-directory "foodir")
+            (require 'dired-x)
+            (dired-smart-shell-command "mkfifo foopipe")
+            (server-force-delete)
+            ;; FIXME?  This seems a heavy-handed way of making a socket.
+            (server-start)              ; Add a socket file.
+            (kill-buffer buf))
+          (dired test-dir)
+          (dired-toggle-read-only)
+          (let (names)
+            ;; Test that the file names are the same in Dired and WDired.
+            (while (not (eobp))
+              (should (equal (dired-get-filename 'no-dir t)
+                             (wdired-get-filename t)))
+              (insert "w")
+              (push (wdired-get-filename t) names)
+              (dired-next-line 1))
+            (wdired-finish-edit)
+            ;; Test that editing the file names ignores the indicator
+            ;; character.
+            (let (dir)
+              (while (and (dired-previous-line 1)
+                          (setq dir (dired-get-filename 'no-dir t)))
+                (should (equal dir (pop names)))))))
+      (kill-buffer (get-buffer test-dir))
+      (server-force-delete)
+      (delete-directory test-dir t))))
+
+(ert-deftest wdired-test-bug39280 ()
+  "Test for https://debbugs.gnu.org/39280."
+  (let* ((test-dir (make-temp-file "test-dir" 'dir))
+         (fname "foo")
+         (full-fname (expand-file-name fname test-dir)))
+    (make-empty-file full-fname)
+    (let ((buf (find-file-noselect test-dir)))
+      (unwind-protect
+	  (with-current-buffer buf
+	    (dired-toggle-read-only)
+            (dolist (old '(t nil))
+              (should (equal fname (wdired-get-filename 'nodir old)))
+              (should (equal full-fname (wdired-get-filename nil old))))
+	    (wdired-finish-edit))
+	(if buf (kill-buffer buf))
+	(delete-directory test-dir t)))))
 
 (provide 'wdired-tests)
 ;;; wdired-tests.el ends here

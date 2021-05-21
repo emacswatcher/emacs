@@ -1,6 +1,6 @@
 ;;; eww.el --- Emacs Web Wowser  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2013-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: html
@@ -25,14 +25,15 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'format-spec)
-(require 'shr)
-(require 'url)
-(require 'url-queue)
-(require 'url-util)			; for url-get-url-at-point
 (require 'mm-url)
 (require 'puny)
-(eval-when-compile (require 'subr-x)) ;; for string-trim
+(require 'shr)
+(require 'text-property-search)
+(require 'thingatpt)
+(require 'url)
+(require 'url-queue)
+(require 'xdg)
+(eval-when-compile (require 'subr-x))
 
 (defgroup eww nil
   "Emacs Web Wowser"
@@ -55,26 +56,46 @@
   :group 'eww
   :type 'string)
 
-(defcustom eww-download-directory "~/Downloads/"
-  "Directory where files will downloaded."
-  :version "24.4"
+(defcustom eww-use-browse-url "\\`mailto:"
+  "eww will use `browse-url' when following links that match this regexp.
+The action to be taken can be further customized via
+`browse-url-handlers'."
+  :version "28.1"
+  :type 'regexp)
+
+(defun erc--download-directory ()
+  "Return the name of the download directory.
+If ~/Downloads/ exists, that will be used, and if not, the
+DOWNLOAD XDG user directory will be returned.  If that's
+undefined, ~/Downloads/ is returned anyway."
+  (or (and (file-exists-p "~/Downloads/")
+           "~/Downloads/")
+      (when-let ((dir (xdg-user-dir "DOWNLOAD")))
+        (file-name-as-directory dir))
+      "~/Downloads/"))
+
+(defcustom eww-download-directory 'erc--download-directory
+  "Directory where files will downloaded.
+This should either be a directory name or a function (called with
+no parameters) that returns a directory name."
+  :version "28.1"
   :group 'eww
-  :type 'directory)
+  :type '(choice directory function))
 
 ;;;###autoload
 (defcustom eww-suggest-uris
   '(eww-links-at-point
-    url-get-url-at-point
+    thing-at-point-url-at-point
     eww-current-url)
   "List of functions called to form the list of default URIs for `eww'.
 Each of the elements is a function returning either a string or a list
 of strings.  The results will be joined into a single list with
 duplicate entries (if any) removed."
-  :version "25.1"
+  :version "27.1"
   :group 'eww
   :type 'hook
   :options '(eww-links-at-point
-             url-get-url-at-point
+             thing-at-point-url-at-point
              eww-current-url))
 
 (defcustom eww-bookmarks-directory user-emacs-directory
@@ -120,6 +141,15 @@ The string will be passed through `substitute-command-keys'."
   :type '(choice (const :tag "Unlimited" nil)
                  integer))
 
+(defcustom eww-retrieve-command nil
+  "Command to retrieve an URL via an external program.
+If nil, `url-retrieve' is used to download the data.  If non-nil,
+this should be a list where the first item is the program, and
+the rest are the arguments."
+  :version "28.1"
+  :type '(choice (const :tag "Use `url-retrieve'" nil)
+                 (repeat string)))
+
 (defcustom eww-use-external-browser-for-content-type
   "\\`\\(video/\\|audio/\\|application/ogg\\)"
   "Always use external browser for specified content-type."
@@ -127,6 +157,18 @@ The string will be passed through `substitute-command-keys'."
   :group 'eww
   :type '(choice (const :tag "Never" nil)
                  regexp))
+
+(defcustom eww-browse-url-new-window-is-tab 'tab-bar
+  "Whether to open up new windows in a tab or a new buffer.
+If t, then open the URL in a new tab rather than a new buffer if
+`eww-browse-url' is asked to open it in a new window.
+If `tab-bar', then open the URL in a new tab only when
+the tab bar is enabled."
+  :version "27.1"
+  :group 'eww
+  :type '(choice (const :tag "Always open URL in new tab" t)
+                 (const :tag "Open new tab when tab bar is enabled" tab-bar)
+                 (const :tag "Never open URL in new tab" nil)))
 
 (defcustom eww-after-render-hook nil
   "A hook called after eww has finished rendering the buffer."
@@ -223,6 +265,10 @@ See also `eww-form-checkbox-selected-symbol'."
 (defvar eww-local-regex "localhost"
   "When this regex is found in the URL, it's not a keyword but an address.")
 
+(defvar eww-accept-content-types
+  "text/html, text/plain, text/sgml, text/css, application/xhtml+xml, */*;q=0.01"
+  "Value used for the HTTP 'Accept' header.")
+
 (defvar eww-link-keymap
   (let ((map (copy-keymap shr-map)))
     (define-key map "\r" 'eww-follow-link)
@@ -247,19 +293,40 @@ This list can be customized via `eww-suggest-uris'."
     (nreverse uris)))
 
 ;;;###autoload
-(defun eww (url &optional arg)
+(defun eww-browse ()
+  "Function to be run to parse command line URLs.
+This is meant to be used for MIME handlers or command line use.
+
+Setting the handler for \"text/x-uri;\" to
+\"emacs -f eww-browse %u\" will then start up Emacs and call eww
+to browse the url.
+
+This can also be used on the command line directly:
+
+ emacs -f eww-browse https://gnu.org
+
+will start Emacs and browse the GNU web site."
+  (interactive)
+  (eww (pop command-line-args-left)))
+
+
+;;;###autoload
+(defun eww (url &optional arg buffer)
   "Fetch URL and render the page.
 If the input doesn't look like an URL or a domain name, the
 word(s) will be searched for via `eww-search-prefix'.
 
 If called with a prefix ARG, use a new buffer instead of reusing
-the default EWW buffer."
+the default EWW buffer.
+
+If BUFFER, the data to be rendered is in that buffer.  In that
+case, this function doesn't actually fetch URL.  BUFFER will be
+killed after rendering."
   (interactive
-   (let* ((uris (eww-suggested-uris))
-	  (prompt (concat "Enter URL or keywords"
-			  (if uris (format " (default %s)" (car uris)) "")
-			  ": ")))
-     (list (read-string prompt nil 'eww-prompt-history uris)
+   (let ((uris (eww-suggested-uris)))
+     (list (read-string (format-prompt "Enter URL or keywords"
+                                       (and uris (car uris)))
+                        nil 'eww-prompt-history uris)
            (prefix-numeric-value current-prefix-arg))))
   (setq url (eww--dwim-expand-url url))
   (pop-to-buffer-same-window
@@ -290,8 +357,40 @@ the default EWW buffer."
   (let ((inhibit-read-only t))
     (insert (format "Loading %s..." url))
     (goto-char (point-min)))
-  (url-retrieve url 'eww-render
-                (list url nil (current-buffer))))
+  (let ((url-mime-accept-string eww-accept-content-types))
+    (if buffer
+        (let ((eww-buffer (current-buffer)))
+          (with-current-buffer buffer
+            (eww-render nil url nil eww-buffer)))
+      (eww-retrieve url #'eww-render
+                    (list url nil (current-buffer))))))
+
+(defun eww-retrieve (url callback cbargs)
+  (if (null eww-retrieve-command)
+      (url-retrieve url #'eww-render
+                    (list url nil (current-buffer)))
+    (let ((buffer (generate-new-buffer " *eww retrieve*"))
+          (error-buffer (generate-new-buffer " *eww error*")))
+      (with-current-buffer buffer
+        (set-buffer-multibyte nil)
+        (make-process
+         :name "*eww fetch*"
+         :buffer (current-buffer)
+         :stderr error-buffer
+         :command (append eww-retrieve-command (list url))
+         :sentinel (lambda (process _)
+                     (unless (process-live-p process)
+                       (when (buffer-live-p error-buffer)
+                         (when (get-buffer-process error-buffer)
+                           (delete-process (get-buffer-process error-buffer) ))
+                         (kill-buffer error-buffer))
+                       (when (buffer-live-p buffer)
+                         (with-current-buffer buffer
+                           (goto-char (point-min))
+                           (insert "Content-type: text/html; charset=utf-8\n\n")
+                           (apply #'funcall callback nil cbargs))))))))))
+
+(function-put 'eww 'browse-url-browser-kind 'internal)
 
 (defun eww--dwim-expand-url (url)
   (setq url (string-trim url))
@@ -321,6 +420,18 @@ the default EWW buffer."
                               #'url-hexify-string (split-string url) "+"))))))
   url)
 
+(defun eww--preprocess-html (start end)
+  "Translate all < characters that do not look like start of tags into &lt;."
+  (save-excursion
+    (save-restriction
+      (narrow-to-region start end)
+      (goto-char start)
+      (let ((case-fold-search t))
+        (while (re-search-forward "<[^0-9a-z!?/]" nil t)
+          (goto-char (match-beginning 0))
+          (delete-region (point) (1+ (point)))
+          (insert "&lt;"))))))
+
 ;;;###autoload (defalias 'browse-web 'eww)
 
 ;;;###autoload
@@ -330,28 +441,45 @@ the default EWW buffer."
   (eww (concat "file://"
 	       (and (memq system-type '(windows-nt ms-dos))
 		    "/")
-	       (expand-file-name file))))
+	       (expand-file-name file))
+       nil
+       ;; The file name may be a non-local Tramp file.  The URL
+       ;; library doesn't understand these file names, so use the
+       ;; normal Emacs machinery to load the file.
+       (with-current-buffer (generate-new-buffer " *eww file*")
+         (set-buffer-multibyte nil)
+         (insert "Content-type: " (or (mailcap-extension-to-mime
+			               (url-file-extension file))
+                                      "application/octet-stream")
+                 "\n\n")
+         (insert-file-contents file)
+         (current-buffer))))
 
 ;;;###autoload
 (defun eww-search-words ()
-  "Search the web for the text between BEG and END.
+  "Search the web for the text in the region.
 If region is active (and not whitespace), search the web for
-the text between BEG and END.  Else, prompt the user for a search
-string.  See the `eww-search-prefix' variable for the search
-engine used."
+the text between region beginning and end.  Else, prompt the
+user for a search string.  See the variable `eww-search-prefix'
+for the search engine used."
   (interactive)
   (if (use-region-p)
       (let ((region-string (buffer-substring (region-beginning) (region-end))))
         (if (not (string-match-p "\\`[ \n\t\r\v\f]*\\'" region-string))
             (eww region-string)
-          (call-interactively 'eww)))
-    (call-interactively 'eww)))
+          (call-interactively #'eww)))
+    (call-interactively #'eww)))
 
 (defun eww-open-in-new-buffer ()
   "Fetch link at point in a new EWW buffer."
   (interactive)
   (let ((url (eww-suggested-uris)))
     (if (null url) (user-error "No link at point")
+      (when (or (eq eww-browse-url-new-window-is-tab t)
+                (and (eq eww-browse-url-new-window-is-tab 'tab-bar)
+                     tab-bar-mode))
+        (let ((tab-bar-new-tab-choice t))
+          (tab-new)))
       ;; clone useful to keep history, but
       ;; should not clone from non-eww buffer
       (with-current-buffer
@@ -474,6 +602,7 @@ Currently this means either text/html or application/xhtml+xml."
 		  ;; Remove CRLF and replace NUL with &#0; before parsing.
 		  (while (re-search-forward "\\(\r$\\)\\|\0" nil t)
 		    (replace-match (if (match-beginning 1) "" "&#0;") t t)))
+                (eww--preprocess-html (point) (point-max))
 		(libxml-parse-html-region (point) (point-max))))))
 	(source (and (null document)
 		     (buffer-substring (point) (point-max)))))
@@ -483,6 +612,10 @@ Currently this means either text/html or application/xhtml+xml."
       (plist-put eww-data :dom document)
       (let ((inhibit-read-only t)
 	    (inhibit-modification-hooks t)
+            ;; Possibly set by the caller, e.g., `eww-render' which
+            ;; preserves the old URL #target before chasing redirects.
+            (shr-target-id (or shr-target-id
+                               (url-target (url-generic-parse-url url))))
 	    (shr-external-rendering-functions
              (append
               shr-external-rendering-functions
@@ -502,10 +635,10 @@ Currently this means either text/html or application/xhtml+xml."
 	  (goto-char point))
 	 (shr-target-id
 	  (goto-char (point-min))
-	  (let ((point (next-single-property-change
-			(point-min) 'shr-target-id)))
-	    (when point
-	      (goto-char point))))
+          (let ((match (text-property-search-forward
+                        'shr-target-id shr-target-id t)))
+            (when match
+              (goto-char (prop-match-beginning match)))))
 	 (t
 	  (goto-char (point-min))
 	  ;; Don't leave point inside forms, because the normal eww
@@ -569,31 +702,88 @@ Currently this means either text/html or application/xhtml+xml."
   (eww-handle-link dom)
   (let ((start (point)))
     (shr-tag-a dom)
-    (put-text-property start (point)
-                       'keymap
-                       (if (mm-images-in-region-p start (point))
-                           eww-image-link-keymap
-                         eww-link-keymap))))
+    (if (dom-attr dom 'href)
+        (put-text-property start (point)
+                           'keymap
+                           (if (mm-images-in-region-p start (point))
+                               eww-image-link-keymap
+                             eww-link-keymap)))))
+
+(defun eww--limit-string-pixelwise (string pixels)
+  (if (not pixels)
+      string
+    (with-temp-buffer
+      (insert string)
+      (if (< (eww--pixel-column) pixels)
+	  string
+	;; Iterate to find appropriate length.
+	(while (and (> (eww--pixel-column) pixels)
+		    (not (bobp)))
+	  (forward-char -1))
+	;; Return at least one character.
+	(buffer-substring (point-min) (max (point)
+					   (1+ (point-min))))))))
+
+(defun eww--pixel-column ()
+  (if (not (get-buffer-window (current-buffer)))
+      (save-window-excursion
+        ;; Avoid errors if the selected window is a dedicated one,
+        ;; and they just want to insert a document into it.
+        (set-window-dedicated-p nil nil)
+	(set-window-buffer nil (current-buffer))
+	(car (window-text-pixel-size nil (line-beginning-position) (point))))
+    (car (window-text-pixel-size nil (line-beginning-position) (point)))))
 
 (defun eww-update-header-line-format ()
   (setq header-line-format
 	(and eww-header-line-format
-	     (let ((title (plist-get eww-data :title))
-		   (peer (plist-get eww-data :peer)))
-	       (when (zerop (length title))
-		 (setq title "[untitled]"))
-	       ;; This connection has is https.
+	     (let ((peer (plist-get eww-data :peer))
+                   (url (plist-get eww-data :url))
+                   (title (propertize
+                           (if (zerop (length (plist-get eww-data :title)))
+		               "[untitled]"
+                             (plist-get eww-data :title))
+                           'face 'variable-pitch)))
+	       ;; This connection is https.
 	       (when peer
-		 (setq title
-		       (propertize title 'face
-				   (if (plist-get peer :warnings)
-				       'eww-invalid-certificate
-				     'eww-valid-certificate))))
+                 (add-face-text-property 0 (length title)
+				         (if (plist-get peer :warnings)
+				             'eww-invalid-certificate
+				           'eww-valid-certificate)
+                                         t title))
+               ;; Limit the length of the title so that the host name
+               ;; of the URL is always visible.
+               (when url
+                 (setq url (propertize url 'face 'variable-pitch))
+                 (let* ((parsed (url-generic-parse-url url))
+                        (host-length (shr-string-pixel-width
+                                      (propertize
+                                       (format "%s://%s" (url-type parsed)
+                                               (url-host parsed))
+                                       'face 'variable-pitch)))
+                        (width (window-width nil t)))
+                   (cond
+                    ;; The host bit is wider than the window, so nix
+                    ;; the title.
+                    ((> (+ host-length (shr-string-pixel-width "xxxxx")) width)
+                     (setq title ""))
+                    ;; Trim the title.
+                    ((> (+ (shr-string-pixel-width (concat title "xx"))
+                           host-length)
+                        width)
+                     (setq title
+                           (concat
+                            (eww--limit-string-pixelwise
+                             title (- width host-length
+                                      (shr-string-pixel-width
+                                       (propertize "...: " 'face
+                                                   'variable-pitch))))
+                            (propertize "..." 'face 'variable-pitch)))))))
 	       (replace-regexp-in-string
 		"%" "%%"
 		(format-spec
 		 eww-header-line-format
-		 `((?u . ,(or (plist-get eww-data :url) ""))
+		 `((?u . ,(or url ""))
 		   (?t . ,title))))))))
 
 (defun eww-tag-title (dom)
@@ -628,14 +818,19 @@ Currently this means either text/html or application/xhtml+xml."
 
 (declare-function mailcap-view-mime "mailcap" (type))
 (defun eww-display-pdf ()
-  (let ((data (buffer-substring (point) (point-max))))
-    (pop-to-buffer-same-window (get-buffer-create "*eww pdf*"))
-    (let ((coding-system-for-write 'raw-text)
-	  (inhibit-read-only t))
-      (erase-buffer)
-      (insert data)
-      (mailcap-view-mime "application/pdf")))
-  (goto-char (point-min)))
+  (let ((buf (current-buffer))
+        (pos (point)))
+    (with-current-buffer (get-buffer-create "*eww pdf*")
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (set-buffer-multibyte nil)
+        (insert-buffer-substring buf pos)
+        (mailcap-view-mime "application/pdf"))
+      (if (zerop (buffer-size))
+          ;; Buffer contents passed to shell command via temporary file.
+          (kill-buffer)
+        (goto-char (point-min))
+        (pop-to-buffer-same-window (current-buffer))))))
 
 (defun eww-setup-buffer ()
   (when (or (plist-get eww-data :url)
@@ -660,7 +855,7 @@ Currently this means either text/html or application/xhtml+xml."
 
 (defun eww-view-source ()
   "View the HTML source code of the current page."
-  (interactive)
+  (interactive nil eww-mode)
   (let ((buf (get-buffer-create "*eww-source*"))
         (source (plist-get eww-data :source)))
     (with-current-buffer buf
@@ -686,7 +881,7 @@ Currently this means either text/html or application/xhtml+xml."
 
 (defun eww-toggle-paragraph-direction ()
   "Cycle the paragraph direction between left-to-right, right-to-left and auto."
-  (interactive)
+  (interactive nil eww-mode)
   (setq bidi-paragraph-direction
         (cond ((eq bidi-paragraph-direction 'left-to-right)
                nil)
@@ -704,13 +899,14 @@ Currently this means either text/html or application/xhtml+xml."
 This command uses heuristics to find the parts of the web page that
 contains the main textual portion, leaving out navigation menus and
 the like."
-  (interactive)
+  (interactive nil eww-mode)
   (let* ((old-data eww-data)
 	 (dom (with-temp-buffer
 		(insert (plist-get old-data :source))
 		(condition-case nil
 		    (decode-coding-region (point-min) (point-max) 'utf-8)
 		  (coding-system-error nil))
+                (eww--preprocess-html (point-min) (point-max))
 		(libxml-parse-html-region (point-min) (point-max))))
          (base (plist-get eww-data :url)))
     (eww-score-readability dom)
@@ -791,6 +987,7 @@ the like."
     (define-key map "F" 'eww-toggle-fonts)
     (define-key map "D" 'eww-toggle-paragraph-direction)
     (define-key map [(meta C)] 'eww-toggle-colors)
+    (define-key map [(meta I)] 'eww-toggle-images)
 
     (define-key map "b" 'eww-add-bookmark)
     (define-key map "B" 'eww-list-bookmarks)
@@ -819,6 +1016,7 @@ the like."
 	["List cookies" url-cookie-list t]
 	["Toggle fonts" eww-toggle-fonts t]
 	["Toggle colors" eww-toggle-colors t]
+	["Toggle images" eww-toggle-images t]
         ["Character Encoding" eww-set-character-encoding]
         ["Toggle Paragraph Direction" eww-toggle-paragraph-direction]))
     map))
@@ -842,6 +1040,7 @@ the like."
 ;;;###autoload
 (define-derived-mode eww-mode special-mode "eww"
   "Mode for browsing the web."
+  :interactive nil
   (setq-local eww-data (list :title ""))
   (setq-local browse-url-browser-function #'eww-browse-url)
   (add-hook 'after-change-functions #'eww-process-text-input nil t)
@@ -854,12 +1053,37 @@ the like."
   ;; multi-page isearch support
   (setq-local multi-isearch-next-buffer-function #'eww-isearch-next-buffer)
   (setq truncate-lines t)
+  (setq-local thing-at-point-provider-alist
+              (append thing-at-point-provider-alist
+                      '((url . eww--url-at-point))))
   (buffer-disable-undo)
   (setq buffer-read-only t))
 
+(defun eww--url-at-point ()
+  "`thing-at-point' provider function."
+  (get-text-property (point) 'shr-url))
+
 ;;;###autoload
 (defun eww-browse-url (url &optional new-window)
+  "Ask the EWW browser to load URL.
+
+Interactively, if the variable `browse-url-new-window-flag' is non-nil,
+loads the document in a new buffer tab on the window tab-line.  A non-nil
+prefix argument reverses the effect of `browse-url-new-window-flag'.
+
+If `tab-bar-mode' is enabled, then whenever a document would
+otherwise be loaded in a new buffer, it is loaded in a new tab
+in the tab-bar on an existing frame.  See more options in
+`eww-browse-url-new-window-is-tab'.
+
+Non-interactively, this uses the optional second argument NEW-WINDOW
+instead of `browse-url-new-window-flag'."
   (when new-window
+    (when (or (eq eww-browse-url-new-window-is-tab t)
+              (and (eq eww-browse-url-new-window-is-tab 'tab-bar)
+                   tab-bar-mode))
+      (let ((tab-bar-new-tab-choice t))
+        (tab-new)))
     (pop-to-buffer-same-window
      (generate-new-buffer
       (format "*eww-%s*" (url-host (url-generic-parse-url
@@ -869,7 +1093,7 @@ the like."
 
 (defun eww-back-url ()
   "Go to the previously displayed page."
-  (interactive)
+  (interactive nil eww-mode)
   (when (>= eww-history-position (length eww-history))
     (user-error "No previous page"))
   (eww-save-history)
@@ -878,7 +1102,7 @@ the like."
 
 (defun eww-forward-url ()
   "Go to the next displayed page."
-  (interactive)
+  (interactive nil eww-mode)
   (when (zerop eww-history-position)
     (user-error "No next page"))
   (eww-save-history)
@@ -902,7 +1126,7 @@ the like."
   "Go to the page marked `next'.
 A page is marked `next' if rel=\"next\" appears in a <link>
 or <a> tag."
-  (interactive)
+  (interactive nil eww-mode)
   (if (plist-get eww-data :next)
       (eww-browse-url (shr-expand-url (plist-get eww-data :next)
 				      (plist-get eww-data :url)))
@@ -912,7 +1136,7 @@ or <a> tag."
   "Go to the page marked `previous'.
 A page is marked `previous' if rel=\"previous\" appears in a <link>
 or <a> tag."
-  (interactive)
+  (interactive nil eww-mode)
   (if (plist-get eww-data :previous)
       (eww-browse-url (shr-expand-url (plist-get eww-data :previous)
 				      (plist-get eww-data :url)))
@@ -922,7 +1146,7 @@ or <a> tag."
   "Go to the page marked `up'.
 A page is marked `up' if rel=\"up\" appears in a <link>
 or <a> tag."
-  (interactive)
+  (interactive nil eww-mode)
   (if (plist-get eww-data :up)
       (eww-browse-url (shr-expand-url (plist-get eww-data :up)
 				      (plist-get eww-data :url)))
@@ -932,7 +1156,7 @@ or <a> tag."
   "Go to the page marked `top'.
 A page is marked `top' if rel=\"start\", rel=\"home\", or rel=\"contents\"
 appears in a <link> or <a> tag."
-  (interactive)
+  (interactive nil eww-mode)
   (let ((best-url (or (plist-get eww-data :start)
 		      (plist-get eww-data :contents)
 		      (plist-get eww-data :home))))
@@ -945,15 +1169,16 @@ appears in a <link> or <a> tag."
 If LOCAL is non-nil (interactively, the command was invoked with
 a prefix argument), don't reload the page from the network, but
 just re-display the HTML already fetched."
-  (interactive "P")
+  (interactive "P" eww-mode)
   (let ((url (plist-get eww-data :url)))
     (if local
 	(if (null (plist-get eww-data :dom))
 	    (error "No current HTML data")
 	  (eww-display-html 'utf-8 url (plist-get eww-data :dom)
 			    (point) (current-buffer)))
-      (url-retrieve url 'eww-render
-		    (list url (point) (current-buffer) encode)))))
+      (let ((url-mime-accept-string eww-accept-content-types))
+        (eww-retrieve url #'eww-render
+		      (list url (point) (current-buffer) encode))))))
 
 ;; Form support.
 
@@ -987,6 +1212,7 @@ just re-display the HTML already fetched."
     (define-key map [(control e)] 'eww-end-of-text)
     (define-key map [?\t] 'shr-next-link)
     (define-key map [?\M-\t] 'shr-previous-link)
+    (define-key map [backtab] 'shr-previous-link)
     map))
 
 (defvar eww-textarea-map
@@ -996,22 +1222,25 @@ just re-display the HTML already fetched."
     (define-key map [(control c) (control c)] 'eww-submit)
     (define-key map [?\t] 'shr-next-link)
     (define-key map [?\M-\t] 'shr-previous-link)
+    (define-key map [backtab] 'shr-previous-link)
     map))
 
 (defvar eww-select-map
   (let ((map (make-sparse-keymap)))
     (define-key map "\r" 'eww-change-select)
+    (define-key map [follow-link] 'mouse-face)
+    (define-key map [mouse-2] 'eww-change-select)
     (define-key map [(control c) (control c)] 'eww-submit)
     map))
 
 (defun eww-beginning-of-text ()
   "Move to the start of the input field."
-  (interactive)
+  (interactive nil eww-mode)
   (goto-char (eww-beginning-of-field)))
 
 (defun eww-end-of-text ()
   "Move to the end of the text in the input field."
-  (interactive)
+  (interactive nil eww-mode)
   (goto-char (eww-end-of-field))
   (let ((start (eww-beginning-of-field)))
     (while (and (equal (following-char) ? )
@@ -1052,11 +1281,13 @@ just re-display the HTML already fetched."
 (defun eww-form-submit (dom)
   (let ((start (point))
 	(value (dom-attr dom 'value)))
-    (setq value
-	  (if (zerop (length value))
-	      "Submit"
-	    value))
-    (insert value)
+    (if (null value)
+        (shr-generic dom)
+      (insert value))
+    ;; If the contents of the <button>...</button> turns out to be
+    ;; empty, or the value was blank, default to this:
+    (when (= (point) start)
+      (insert "Submit"))
     (add-face-text-property start (point) 'eww-form-submit)
     (put-text-property start (point) 'eww-form
 		       (list :eww-form eww-form
@@ -1101,7 +1332,7 @@ just re-display the HTML already fetched."
 
 (defun eww-select-file ()
   "Change the value of the upload file menu under point."
-  (interactive)
+  (interactive nil eww-mode)
   (let*  ((input (get-text-property (point) 'eww-form)))
     (let ((filename
 	   (let ((insert-default-directory t))
@@ -1197,7 +1428,7 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
 
 (defun eww-tag-textarea (dom)
   (let ((start (point))
-	(value (or (dom-attr dom 'value) ""))
+        (value (or (dom-text dom) ""))
 	(lines (string-to-number (or (dom-attr dom 'rows) "10")))
 	(width (string-to-number (or (dom-attr dom 'cols) "10")))
 	end)
@@ -1266,16 +1497,15 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
 	(options nil)
 	(start (point))
 	(max 0))
-    (dolist (elem (dom-non-text-children dom))
-      (when (eq (dom-tag elem) 'option)
-	(when (dom-attr elem 'selected)
-	  (nconc menu (list :value (dom-attr elem 'value))))
-	(let ((display (dom-text elem)))
-	  (setq max (max max (length display)))
-	  (push (list 'item
-		      :value (dom-attr elem 'value)
-		      :display display)
-		options))))
+    (dolist (elem (dom-by-tag dom 'option))
+      (when (dom-attr elem 'selected)
+	(nconc menu (list :value (dom-attr elem 'value))))
+      (let ((display (dom-text elem)))
+	(setq max (max max (length display)))
+	(push (list 'item
+		    :value (dom-attr elem 'value)
+		    :display display)
+	      options)))
     (when options
       (setq options (nreverse options))
       ;; If we have no selected values, default to the first value.
@@ -1302,25 +1532,32 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
 	(setq display (plist-get (cdr elem) :display))))
     display))
 
-(defun eww-change-select ()
+(defun eww--form-items (form)
+  (cl-loop for elem in form
+           when (and (consp elem)
+                     (eq (car elem) 'item))
+           collect (cdr elem)))
+
+(defun eww-change-select (event)
   "Change the value of the select drop-down menu under point."
-  (interactive)
-  (let* ((input (get-text-property (point) 'eww-form))
-	 (completion-ignore-case t)
-	 (options
-	  (delq nil
-		(mapcar (lambda (elem)
-			  (and (consp elem)
-			       (eq (car elem) 'item)
-			       (cons (plist-get (cdr elem) :display)
-				     (plist-get (cdr elem) :value))))
-			input)))
-	 (display
-	  (completing-read "Change value: " options nil 'require-match))
-	 (inhibit-read-only t))
-    (plist-put input :value (cdr (assoc-string display options t)))
-    (goto-char
-     (eww-update-field display))))
+  (interactive
+   (list last-nonmenu-event)
+   eww-mode)
+  (mouse-set-point event)
+  (let ((input (get-text-property (point) 'eww-form)))
+    (popup-menu
+     (cons
+      "Change Value"
+      (mapcar
+       (lambda (elem)
+         (vector (plist-get elem :display)
+                 (lambda ()
+                   (interactive)
+                   (plist-put input :value (plist-get elem :value))
+                   (goto-char (eww-update-field (plist-get elem :display))))
+                 t))
+       (eww--form-items input)))
+     event)))
 
 (defun eww-update-field (string &optional offset)
   (unless offset
@@ -1340,7 +1577,7 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
 
 (defun eww-toggle-checkbox ()
   "Toggle the value of the checkbox under point."
-  (interactive)
+  (interactive nil eww-mode)
   (let* ((input (get-text-property (point) 'eww-form))
 	 (type (plist-get input :type)))
     (if (equal type "checkbox")
@@ -1360,9 +1597,9 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
 	      (goto-char (car elem))
 	      (if (not (eq (cdr elem) input))
 		  (progn
-		    (plist-put input :checked nil)
+		    (plist-put (cdr elem) :checked nil)
 		    (eww-update-field eww-form-checkbox-symbol))
-		(plist-put input :checked t)
+		(plist-put (cdr elem) :checked t)
 		(eww-update-field eww-form-checkbox-selected-symbol)))))
 	(forward-char 1)))))
 
@@ -1410,7 +1647,7 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
 
 (defun eww-submit ()
   "Submit the current form."
-  (interactive)
+  (interactive nil eww-mode)
   (let* ((this-input (get-text-property (point) 'eww-form))
 	 (form (plist-get this-input :eww-form))
 	 values next-submit)
@@ -1424,18 +1661,18 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
 	  (cond
 	   ((member (plist-get input :type) '("checkbox" "radio"))
 	    (when (plist-get input :checked)
-	      (push (cons name (plist-get input :value))
+              (push (cons name (or (plist-get input :value) "on"))
 		    values)))
 	   ((equal (plist-get input :type) "file")
-	    (push (cons "file"
-			(list (cons "filedata"
-				    (with-temp-buffer
-				      (insert-file-contents
-				       (plist-get input :filename))
-				      (buffer-string)))
-			      (cons "name" (plist-get input :name))
-			      (cons "filename" (plist-get input :filename))))
-		  values))
+            (when-let ((file (plist-get input :filename)))
+              (push (list "file"
+                          (cons "filedata"
+                                (with-temp-buffer
+                                  (insert-file-contents file)
+                                  (buffer-string)))
+                          (cons "name" name)
+                          (cons "filename" file))
+                    values)))
 	   ((equal (plist-get input :type) "submit")
 	    ;; We want the values from buttons if we hit a button if
 	    ;; we hit enter on it, or if it's the first button after
@@ -1495,30 +1732,39 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
 
 (defun eww-browse-with-external-browser (&optional url)
   "Browse the current URL with an external browser.
-The browser to used is specified by the `shr-external-browser' variable."
-  (interactive)
-  (funcall shr-external-browser (or url (plist-get eww-data :url))))
+The browser to used is specified by the
+`browse-url-secondary-browser-function' variable."
+  (interactive nil eww-mode)
+  (funcall browse-url-secondary-browser-function
+           (or url (plist-get eww-data :url))))
 
 (defun eww-follow-link (&optional external mouse-event)
   "Browse the URL under point.
-If EXTERNAL is single prefix, browse the URL using `shr-external-browser'.
+If EXTERNAL is single prefix, browse the URL using
+`browse-url-secondary-browser-function'.
+
 If EXTERNAL is double prefix, browse in new buffer."
-  (interactive (list current-prefix-arg last-nonmenu-event))
+  (interactive
+   (list current-prefix-arg last-nonmenu-event)
+   eww-mode)
   (mouse-set-point mouse-event)
   (let ((url (get-text-property (point) 'shr-url)))
     (cond
      ((not url)
       (message "No link under point"))
-     ((string-match "^mailto:" url)
-      (browse-url-mail url))
+     ((string-match-p eww-use-browse-url url)
+      ;; This respects the user options `browse-url-handlers'
+      ;; and `browse-url-mailto-function'.
+      (browse-url url))
      ((and (consp external) (<= (car external) 4))
-      (funcall shr-external-browser url)
+      (funcall browse-url-secondary-browser-function url)
       (shr--blink-link))
      ;; This is a #target url in the same page as the current one.
      ((and (url-target (url-generic-parse-url url))
 	   (eww-same-page-p url (plist-get eww-data :url)))
       (let ((dom (plist-get eww-data :dom)))
 	(eww-save-history)
+	(plist-put eww-data :url url)
 	(eww-display-html 'utf-8 url dom nil (current-buffer))))
      (t
       (eww-browse-url url external)))))
@@ -1534,28 +1780,31 @@ Differences in #targets are ignored."
 
 (defun eww-copy-page-url ()
   "Copy the URL of the current page into the kill ring."
-  (interactive)
+  (interactive nil eww-mode)
   (message "%s" (plist-get eww-data :url))
   (kill-new (plist-get eww-data :url)))
 
 (defun eww-download ()
   "Download URL to `eww-download-directory'.
 Use link at point if there is one, else the current page's URL."
-  (interactive)
-  (access-file eww-download-directory "Download failed")
-  (let ((url (or (get-text-property (point) 'shr-url)
-                 (eww-current-url))))
-    (if (not url)
-        (message "No URL under point")
-      (url-retrieve url 'eww-download-callback (list url)))))
+  (interactive nil eww-mode)
+  (let ((dir (if (stringp eww-download-directory)
+                 eww-download-directory
+               (funcall eww-download-directory))))
+    (access-file dir "Download failed")
+    (let ((url (or (get-text-property (point) 'shr-url)
+                   (eww-current-url))))
+      (if (not url)
+          (message "No URL under point")
+        (url-retrieve url #'eww-download-callback (list url dir))))))
 
-(defun eww-download-callback (status url)
+(defun eww-download-callback (status url dir)
   (unless (plist-get status :error)
     (let* ((obj (url-generic-parse-url url))
            (path (directory-file-name (car (url-path-and-query obj))))
            (file (eww-make-unique-file-name
                   (eww-decode-url-file-name (file-name-nondirectory path))
-                  eww-download-directory)))
+                  dir)))
       (goto-char (point-min))
       (re-search-forward "\r?\n\r?\n")
       (let ((coding-system-for-write 'no-conversion))
@@ -1597,7 +1846,7 @@ Use link at point if there is one, else the current page's URL."
         (suffix ""))
     (when (string-match "\\`\\(.*\\)\\([.][^.]+\\)" file)
       (setq stem (match-string 1 file)
-            suffix (match-string 2)))
+            suffix (match-string 2 file)))
     (while (file-exists-p (expand-file-name file directory))
       (setq file (format "%s(%d)%s" stem count suffix))
       (setq count (1+ count)))
@@ -1606,14 +1855,14 @@ Use link at point if there is one, else the current page's URL."
 (defun eww-set-character-encoding (charset)
   "Set character encoding to CHARSET.
 If CHARSET is nil then use UTF-8."
-  (interactive "zUse character set (default utf-8): ")
+  (interactive "zUse character set (default utf-8): " eww-mode)
   (if (null charset)
       (eww-reload nil 'utf-8)
     (eww-reload nil charset)))
 
 (defun eww-switch-to-buffer ()
   "Prompt for an EWW buffer to display in the selected window."
-  (interactive)
+  (interactive nil eww-mode)
   (let ((completion-extra-properties
          '(:annotation-function (lambda (buf)
                                   (with-current-buffer buf
@@ -1631,7 +1880,7 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-toggle-fonts ()
   "Toggle whether to use monospaced or font-enabled layouts."
-  (interactive)
+  (interactive nil eww-mode)
   (setq shr-use-fonts (not shr-use-fonts))
   (eww-reload)
   (message "Proportional fonts are now %s"
@@ -1639,12 +1888,20 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-toggle-colors ()
   "Toggle whether to use HTML-specified colors or not."
-  (interactive)
+  (interactive nil eww-mode)
   (message "Colors are now %s"
 	   (if (setq shr-use-colors (not shr-use-colors))
 	       "on"
 	     "off"))
   (eww-reload))
+
+(defun eww-toggle-images ()
+  "Toggle whether or not to display images."
+  (interactive nil eww-mode)
+  (setq shr-inhibit-images (not shr-inhibit-images))
+  (eww-reload)
+  (message "Images are now %s"
+           (if shr-inhibit-images "off" "on")))
 
 ;;; Bookmarks code
 
@@ -1652,7 +1909,7 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-add-bookmark ()
   "Bookmark the current page."
-  (interactive)
+  (interactive nil eww-mode)
   (eww-read-bookmarks)
   (dolist (bookmark eww-bookmarks)
     (when (equal (plist-get eww-data :url) (plist-get bookmark :url))
@@ -1671,28 +1928,30 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-write-bookmarks ()
   (with-temp-file (expand-file-name "eww-bookmarks" eww-bookmarks-directory)
-    (insert ";; Auto-generated file; don't edit\n")
+    (insert ";; Auto-generated file; don't edit -*- mode: lisp-data -*-\n")
     (pp eww-bookmarks (current-buffer))))
 
-(defun eww-read-bookmarks ()
+(defun eww-read-bookmarks (&optional error-out)
+  "Read bookmarks from `eww-bookmarks'.
+If ERROR-OUT, signal user-error if there are no bookmarks."
   (let ((file (expand-file-name "eww-bookmarks" eww-bookmarks-directory)))
     (setq eww-bookmarks
 	  (unless (zerop (or (file-attribute-size (file-attributes file)) 0))
 	    (with-temp-buffer
 	      (insert-file-contents file)
-	      (read (current-buffer)))))))
+	      (read (current-buffer)))))
+    (when (and error-out (not eww-bookmarks))
+      (user-error "No bookmarks are defined"))))
 
 ;;;###autoload
 (defun eww-list-bookmarks ()
   "Display the bookmarks."
   (interactive)
+  (eww-read-bookmarks t)
   (pop-to-buffer "*eww bookmarks*")
   (eww-bookmark-prepare))
 
 (defun eww-bookmark-prepare ()
-  (eww-read-bookmarks)
-  (unless eww-bookmarks
-    (user-error "No bookmarks are defined"))
   (set-buffer (get-buffer-create "*eww bookmarks*"))
   (eww-bookmark-mode)
   (let* ((width (/ (window-width) 2))
@@ -1714,7 +1973,7 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-bookmark-kill ()
   "Kill the current bookmark."
-  (interactive)
+  (interactive nil eww-bookmark-mode)
   (let* ((start (line-beginning-position))
 	 (bookmark (get-text-property start 'eww-bookmark))
 	 (inhibit-read-only t))
@@ -1728,7 +1987,7 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-bookmark-yank ()
   "Yank a previously killed bookmark to the current line."
-  (interactive)
+  (interactive nil eww-bookmark-mode)
   (unless eww-bookmark-kill-ring
     (user-error "No previously killed bookmark"))
   (beginning-of-line)
@@ -1746,7 +2005,7 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-bookmark-browse ()
   "Browse the bookmark under point in eww."
-  (interactive)
+  (interactive nil eww-bookmark-mode)
   (let ((bookmark (get-text-property (line-beginning-position) 'eww-bookmark)))
     (unless bookmark
       (user-error "No bookmark on the current line"))
@@ -1755,11 +2014,12 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-next-bookmark ()
   "Go to the next bookmark in the list."
-  (interactive)
+  (interactive nil eww-bookmark-mode)
   (let ((first nil)
 	bookmark)
     (unless (get-buffer "*eww bookmarks*")
       (setq first t)
+      (eww-read-bookmarks t)
       (eww-bookmark-prepare))
     (with-current-buffer (get-buffer "*eww bookmarks*")
       (when (and (not first)
@@ -1773,11 +2033,12 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-previous-bookmark ()
   "Go to the previous bookmark in the list."
-  (interactive)
+  (interactive nil eww-bookmark-mode)
   (let ((first nil)
 	bookmark)
     (unless (get-buffer "*eww bookmarks*")
       (setq first t)
+      (eww-read-bookmarks t)
       (eww-bookmark-prepare))
     (with-current-buffer (get-buffer "*eww bookmarks*")
       (if first
@@ -1815,6 +2076,7 @@ If CHARSET is nil then use UTF-8."
   "Mode for listing bookmarks.
 
 \\{eww-bookmark-mode-map}"
+  :interactive nil
   (buffer-disable-undo)
   (setq truncate-lines t))
 
@@ -1863,7 +2125,7 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-history-browse ()
   "Browse the history under point in eww."
-  (interactive)
+  (interactive nil eww-history-mode)
   (let ((history (get-text-property (line-beginning-position) 'eww-history)))
     (unless history
       (error "No history on the current line"))
@@ -1876,8 +2138,8 @@ If CHARSET is nil then use UTF-8."
 (defvar eww-history-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map "\r" 'eww-history-browse)
-;;    (define-key map "n" 'next-error-no-select)
-;;    (define-key map "p" 'previous-error-no-select)
+    (define-key map "n" 'next-line)
+    (define-key map "p" 'previous-line)
 
     (easy-menu-define nil map
       "Menu for `eww-history-mode-map'."
@@ -1891,6 +2153,7 @@ If CHARSET is nil then use UTF-8."
   "Mode for listing eww-histories.
 
 \\{eww-history-mode-map}"
+  :interactive nil
   (buffer-disable-undo)
   (setq truncate-lines t))
 
@@ -1945,7 +2208,7 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-buffer-select ()
   "Switch to eww buffer."
-  (interactive)
+  (interactive nil eww-buffers-mode)
   (let ((buffer (get-text-property (line-beginning-position)
                                    'eww-buffer)))
     (unless buffer
@@ -1965,7 +2228,7 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-buffer-show-next ()
   "Move to next eww buffer in the list and display it."
-  (interactive)
+  (interactive nil eww-buffers-mode)
   (forward-line)
   (when (eobp)
     (goto-char (point-min)))
@@ -1973,7 +2236,7 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-buffer-show-previous ()
   "Move to previous eww buffer in the list and display it."
-  (interactive)
+  (interactive nil eww-buffers-mode)
   (beginning-of-line)
   (when (bobp)
     (goto-char (point-max)))
@@ -1982,7 +2245,7 @@ If CHARSET is nil then use UTF-8."
 
 (defun eww-buffer-kill ()
   "Kill buffer from eww list."
-  (interactive)
+  (interactive nil eww-buffers-mode)
   (let* ((start (line-beginning-position))
 	 (buffer (get-text-property start 'eww-buffer))
 	 (inhibit-read-only t))
@@ -2016,6 +2279,7 @@ If CHARSET is nil then use UTF-8."
   "Mode for listing buffers.
 
 \\{eww-buffers-mode-map}"
+  :interactive nil
   (buffer-disable-undo)
   (setq truncate-lines t))
 
@@ -2060,12 +2324,12 @@ entries (if any) will be removed from the list.
 Only the properties listed in `eww-desktop-data-save' are included.
 Generally, the list should not include the (usually overly large)
 :dom, :source and :text properties."
-  (let ((history  (mapcar 'eww-desktop-data-1
-			  (cons eww-data eww-history))))
-    (list :history  (if eww-desktop-remove-duplicates
-			(cl-remove-duplicates
-			 history :test 'eww-desktop-history-duplicate)
-		      history))))
+  (let ((history (mapcar #'eww-desktop-data-1
+                         (cons eww-data eww-history))))
+    (list :history (if eww-desktop-remove-duplicates
+                       (cl-remove-duplicates
+                        history :test #'eww-desktop-history-duplicate)
+                     history))))
 
 (defun eww-restore-desktop (file-name buffer-name misc-data)
   "Restore an eww buffer from its desktop file record.

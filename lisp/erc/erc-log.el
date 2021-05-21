@@ -1,10 +1,11 @@
-;;; erc-log.el --- Logging facilities for ERC.
+;;; erc-log.el --- Logging facilities for ERC.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2003-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2021 Free Software Foundation, Inc.
 
 ;; Author: Lawrence Mitchell <wence@gmx.li>
-;; Maintainer: emacs-devel@gnu.org
-;; Keywords: IRC, chat, client, Internet, logging
+;; Maintainer: Amin Bandali <bandali@gnu.org>
+;; URL: https://www.emacswiki.org/emacs/ErcLogging
+;; Keywords: comm, IRC, chat, client, Internet, logging
 
 ;; Created 2003-04-26
 ;; Logging code taken from erc.el and modified to use markers.
@@ -111,7 +112,6 @@ SERVER and PORT are the parameters that were used to connect to BUFFERs
 If you want to write logs into different directories, make a
 custom function which returns the directory part and set
 `erc-log-channels-directory' to its name."
-  :group 'erc-log
   :type '(choice (const :tag "#channel!nick@server:port.txt"
 			erc-generate-log-file-name-long)
 		 (const :tag "#channel!nick@network.txt"
@@ -123,7 +123,6 @@ custom function which returns the directory part and set
 
 (defcustom erc-truncate-buffer-on-save nil
   "Erase the contents of any ERC (channel, query, server) buffer when it is saved."
-  :group 'erc-log
   :type 'boolean)
 
 (defcustom erc-enable-logging t
@@ -137,7 +136,6 @@ This variable is buffer local.  Setting it via \\[customize] sets the
 default value.
 
 Log files are stored in `erc-log-channels-directory'."
-  :group 'erc-log
   :type '(choice boolean
 		 function))
 (make-variable-buffer-local 'erc-enable-logging)
@@ -152,14 +150,12 @@ If this is the name of a function, the function will be called
 with the buffer, target, nick, server, and port arguments.  See
 `erc-generate-log-file-name-function' for a description of these
 arguments."
-  :group 'erc-log
   :type '(choice directory
 		 (function "Function")
 		 (const :tag "Disable logging" nil)))
 
 (defcustom erc-log-insert-log-on-open nil
   "Insert log file contents into the buffer if a log file exists."
-  :group 'erc-log
   :type 'boolean)
 
 (defcustom erc-save-buffer-on-part t
@@ -167,7 +163,6 @@ arguments."
 
 If you set this to nil, you may want to enable both
 `erc-log-write-after-send' and `erc-log-write-after-insert'."
-  :group 'erc-log
   :type 'boolean)
 
 (defcustom erc-save-queries-on-quit t
@@ -175,7 +170,6 @@ If you set this to nil, you may want to enable both
 
 If you set this to nil, you may want to enable both
 `erc-log-write-after-send' and `erc-log-write-after-insert'."
-  :group 'erc-log
   :type 'boolean)
 
 (defcustom erc-log-write-after-send nil
@@ -183,7 +177,6 @@ If you set this to nil, you may want to enable both
 
 If you set this to nil, you may want to enable both
 `erc-save-buffer-on-part' and `erc-save-queries-on-quit'."
-  :group 'erc-log
   :type 'boolean)
 
 (defcustom erc-log-write-after-insert nil
@@ -192,25 +185,20 @@ logged ERC buffer.
 
 If you set this to nil, you may want to enable both
 `erc-save-buffer-on-part' and `erc-save-queries-on-quit'."
-  :group 'erc-log
   :type 'boolean)
 
-(defcustom erc-log-file-coding-system (if (featurep 'xemacs)
-					  'binary
-					'emacs-mule)
+(defcustom erc-log-file-coding-system 'emacs-mule
   "The coding system ERC should use for writing log files.
 
 This should ideally, be a \"catch-all\" coding system, like
 `emacs-mule', or `iso-2022-7bit'."
-  :type 'coding-system
-  :group 'erc-log)
+  :type 'coding-system)
 
 (defcustom erc-log-filter-function nil
   "If non-nil, pass text through the given function before writing it to
 a log file.
 
 The function should take one argument, which is the text to filter."
-  :group 'erc-log
   :type '(choice (function "Function")
 		 (const :tag "No filtering" nil)))
 
@@ -233,31 +221,31 @@ also be a predicate function.  To only log when you are not set away, use:
 	  (null (erc-away-time)))))"
   ;; enable
   ((when erc-log-write-after-insert
-     (add-hook 'erc-insert-post-hook 'erc-save-buffer-in-logs))
+     (add-hook 'erc-insert-post-hook #'erc-save-buffer-in-logs))
    (when erc-log-write-after-send
-     (add-hook 'erc-send-post-hook 'erc-save-buffer-in-logs))
-   (add-hook 'erc-kill-buffer-hook 'erc-save-buffer-in-logs)
-   (add-hook 'erc-kill-channel-hook 'erc-save-buffer-in-logs)
-   (add-hook 'kill-emacs-hook 'erc-log-save-all-buffers)
-   (add-hook 'erc-quit-hook 'erc-conditional-save-queries)
-   (add-hook 'erc-part-hook 'erc-conditional-save-buffer)
+     (add-hook 'erc-send-post-hook #'erc-save-buffer-in-logs))
+   (add-hook 'erc-kill-buffer-hook #'erc-save-buffer-in-logs)
+   (add-hook 'erc-kill-channel-hook #'erc-save-buffer-in-logs)
+   (add-hook 'kill-emacs-hook #'erc-log-save-all-buffers)
+   (add-hook 'erc-quit-hook #'erc-conditional-save-queries)
+   (add-hook 'erc-part-hook #'erc-conditional-save-buffer)
    ;; append, so that 'erc-initialize-log-marker runs first
-   (add-hook 'erc-connect-pre-hook 'erc-log-setup-logging 'append)
+   (add-hook 'erc-connect-pre-hook #'erc-log-setup-logging 'append)
    (dolist (buffer (erc-buffer-list))
      (erc-log-setup-logging buffer)))
   ;; disable
-  ((remove-hook 'erc-insert-post-hook 'erc-save-buffer-in-logs)
-   (remove-hook 'erc-send-post-hook 'erc-save-buffer-in-logs)
-   (remove-hook 'erc-kill-buffer-hook 'erc-save-buffer-in-logs)
-   (remove-hook 'erc-kill-channel-hook 'erc-save-buffer-in-logs)
-   (remove-hook 'kill-emacs-hook 'erc-log-save-all-buffers)
-   (remove-hook 'erc-quit-hook 'erc-conditional-save-queries)
-   (remove-hook 'erc-part-hook 'erc-conditional-save-buffer)
-   (remove-hook 'erc-connect-pre-hook 'erc-log-setup-logging)
+  ((remove-hook 'erc-insert-post-hook #'erc-save-buffer-in-logs)
+   (remove-hook 'erc-send-post-hook #'erc-save-buffer-in-logs)
+   (remove-hook 'erc-kill-buffer-hook #'erc-save-buffer-in-logs)
+   (remove-hook 'erc-kill-channel-hook #'erc-save-buffer-in-logs)
+   (remove-hook 'kill-emacs-hook #'erc-log-save-all-buffers)
+   (remove-hook 'erc-quit-hook #'erc-conditional-save-queries)
+   (remove-hook 'erc-part-hook #'erc-conditional-save-buffer)
+   (remove-hook 'erc-connect-pre-hook #'erc-log-setup-logging)
    (dolist (buffer (erc-buffer-list))
      (erc-log-disable-logging buffer))))
 
-(define-key erc-mode-map "\C-c\C-l" 'erc-save-buffer-in-logs)
+(define-key erc-mode-map "\C-c\C-l" #'erc-save-buffer-in-logs)
 
 ;;; functionality referenced from erc.el
 (defun erc-log-setup-logging (buffer)
@@ -268,7 +256,7 @@ The current buffer is given by BUFFER."
     (with-current-buffer buffer
       (auto-save-mode -1)
       (setq buffer-file-name nil)
-      (erc-set-write-file-functions '(erc-save-buffer-in-logs))
+      (add-hook 'write-file-functions #'erc-save-buffer-in-logs nil t)
       (when erc-log-insert-log-on-open
 	(ignore-errors
 	  (save-excursion
@@ -285,7 +273,7 @@ The current buffer is given by BUFFER."
 	    erc-enable-logging nil))))
 
 (defun erc-log-all-but-server-buffers (buffer)
-  "Returns t if logging should be enabled in BUFFER.
+  "Return t if logging should be enabled in BUFFER.
 Returns nil if `erc-server-buffer-p' returns t."
   (save-excursion
     (save-window-excursion
@@ -335,14 +323,14 @@ This will not work with full paths, only names.
 
 Any unsafe characters in the name are replaced with \"!\".  The
 filename is downcased."
-  (downcase (erc-replace-regexp-in-string
+  (downcase (replace-regexp-in-string
 	     "[/\\]" "!" (convert-standard-filename filename))))
 
 (defun erc-current-logfile (&optional buffer)
   "Return the logfile to use for BUFFER.
 If BUFFER is nil, the value of `current-buffer' is used.
 This is determined by `erc-generate-log-file-name-function'.
-The result is converted to lowercase, as IRC is case-insensitive"
+The result is converted to lowercase, as IRC is case-insensitive."
   (unless buffer (setq buffer (current-buffer)))
   (with-current-buffer buffer
     (let ((target (or (buffer-name buffer) (erc-default-target)))
@@ -358,13 +346,13 @@ The result is converted to lowercase, as IRC is case-insensitive"
 		    buffer target nick server port)
 	 erc-log-channels-directory)))))
 
-(defun erc-generate-log-file-name-with-date (buffer &rest ignore)
+(defun erc-generate-log-file-name-with-date (buffer &rest _ignore)
   "This function computes a short log file name.
 The name of the log file is composed of BUFFER and the current date.
 This function is a possible value for `erc-generate-log-file-name-function'."
   (concat (buffer-name buffer) "-" (format-time-string "%Y-%m-%d") ".txt"))
 
-(defun erc-generate-log-file-name-short (buffer &rest ignore)
+(defun erc-generate-log-file-name-short (buffer &rest _ignore)
   "This function computes a short log file name.
 In fact, it only uses the buffer name of the BUFFER argument, so
 you can affect that using `rename-buffer' and the-like.  This
@@ -372,7 +360,7 @@ function is a possible value for
 `erc-generate-log-file-name-function'."
   (concat (buffer-name buffer) ".txt"))
 
-(defun erc-generate-log-file-name-long (buffer target nick server port)
+(defun erc-generate-log-file-name-long (_buffer target nick server port)
   "Generates a log-file name in the way ERC always did it.
 This results in a file name of the form #channel!nick@server:port.txt.
 This function is a possible value for `erc-generate-log-file-name-function'."
@@ -386,7 +374,7 @@ This function is a possible value for `erc-generate-log-file-name-function'."
 
 (declare-function erc-network-name "erc-networks" ())
 
-(defun erc-generate-log-file-name-network (buffer target nick server port)
+(defun erc-generate-log-file-name-network (buffer target nick server _port)
   "Generates a log-file name using the network name rather than server name.
 This results in a file name of the form #channel!nick@network.txt.
 This function is a possible value for `erc-generate-log-file-name-function'."
@@ -415,8 +403,7 @@ You can save every individual message by putting this function on
   (or buffer (setq buffer (current-buffer)))
   (when (erc-logging-enabled buffer)
     (let ((file (erc-current-logfile buffer))
-	  (coding-system erc-log-file-coding-system)
-	  (inhibit-clash-detection t))	; needed for XEmacs
+          (coding-system erc-log-file-coding-system))
       (save-excursion
 	(with-current-buffer buffer
 	  (save-restriction
@@ -458,6 +445,4 @@ You can save every individual message by putting this function on
 ;;
 ;; Local Variables:
 ;; generated-autoload-file: "erc-loaddefs.el"
-;; indent-tabs-mode: t
-;; tab-width: 8
 ;; End:

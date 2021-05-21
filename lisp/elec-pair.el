@@ -1,6 +1,6 @@
 ;;; elec-pair.el --- Automatic parenthesis pairing  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2013-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
 ;; Author: João Távora <joaotavora@gmail.com>
 
@@ -51,7 +51,7 @@ See also the variable `electric-pair-text-pairs'."
 
 Pairs of delimiters in this list are a fallback in case they have
 no syntax relevant to `electric-pair-mode' in the syntax table
-defined in `electric-pair-text-syntax-table'"
+defined in `electric-pair-text-syntax-table'."
   :version "24.4"
   :group 'electricity
   :type '(repeat (cons character character)))
@@ -159,7 +159,7 @@ return value is considered instead."
   #'electric-pair--skip-whitespace
   "Function to use to skip whitespace forward.
 Before attempting a skip, if `electric-pair-skip-whitespace' is
-non-nil, this function is called. It move point to a new buffer
+non-nil, this function is called.  It move point to a new buffer
 position, presumably skipping only whitespace in between.")
 
 (defun electric-pair--skip-whitespace ()
@@ -230,7 +230,7 @@ inside a comment or string."
 	(electric-pair-mode nil)
         ;; When adding the "closer" delimiter, a job his function is
         ;; frequently used for, we don't want to munch any extra
-        ;; newlines above us.  That would be the default behaviour of
+        ;; newlines above us.  That would be the default behavior of
         ;; `electric-layout-mode', which potentially kicked in before
         ;; us to add these newlines, and is probably about to kick in
         ;; again after we add the closer.
@@ -246,7 +246,7 @@ functions when `parse-sexp-lookup-properties' is non-nil.  The
 cache is flushed from position START, defaulting to point."
   (declare (debug ((form &optional form) body)) (indent 1))
   (let ((start-var (make-symbol "start")))
-    `(let ((syntax-propertize-function nil)
+    `(let ((syntax-propertize-function #'ignore)
            (,start-var ,(or start '(point))))
        (unwind-protect
            (with-syntax-table ,table
@@ -380,7 +380,7 @@ If point is not enclosed by any lists, return ((t) . (t))."
 (defvar electric-pair-string-bound-function 'point-max
   "Next buffer position where strings are syntactically unexpected.
 Value is a function called with no arguments and returning a
-buffer position. Major modes should set this variable
+buffer position.  Major modes should set this variable
 buffer-locally if they experience slowness with
 `electric-pair-mode' when pairing quotes.")
 
@@ -564,13 +564,6 @@ happened."
                       (matching-paren (char-after))))
          (save-excursion (newline 1 t)))))))
 
-;; Prioritize this to kick in after
-;; `electric-layout-post-self-insert-function': that considerably
-;; simplifies interoperation when `electric-pair-mode',
-;; `electric-layout-mode' and `electric-indent-mode' are used
-;; together.  Use `vc-region-history' on these lines for more info.
-(put 'electric-pair-post-self-insert-function   'priority  50)
-
 (defun electric-pair-will-use-region ()
   (and (use-region-p)
        (memq (car (electric-pair-syntax-info last-command-event))
@@ -622,8 +615,14 @@ To toggle the mode in a single buffer, use `electric-pair-local-mode'."
   (if electric-pair-mode
       (progn
 	(add-hook 'post-self-insert-hook
-		  #'electric-pair-post-self-insert-function)
-        (electric--sort-post-self-insertion-hook)
+		  #'electric-pair-post-self-insert-function
+                  ;; Prioritize this to kick in after
+                  ;; `electric-layout-post-self-insert-function': that
+                  ;; considerably simplifies interoperation when
+                  ;; `electric-pair-mode', `electric-layout-mode' and
+                  ;; `electric-indent-mode' are used together.
+                  ;; Use `vc-region-history' on these lines for more info.
+                  50)
 	(add-hook 'self-insert-uses-region-functions
 		  #'electric-pair-will-use-region))
     (remove-hook 'post-self-insert-hook

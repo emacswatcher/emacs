@@ -1,6 +1,6 @@
-;;; nnmbox.el --- mail mbox access for Gnus
+;;; nnmbox.el --- mail mbox access for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1995-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1995-2021 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;;	Masanobu UMEDA <umerin@flab.flab.fujitsu.junet>
@@ -76,7 +76,7 @@
 
 (nnoo-define-basics nnmbox)
 
-(deffoo nnmbox-retrieve-headers (sequence &optional newsgroup server fetch-old)
+(deffoo nnmbox-retrieve-headers (sequence &optional newsgroup server _fetch-old)
   (with-current-buffer nntp-server-buffer
     (erase-buffer)
     (let ((number (length sequence))
@@ -130,19 +130,16 @@
 		     nnmbox-mbox-file)
     t)))
 
-(deffoo nnmbox-close-server (&optional server)
-  (when (and nnmbox-mbox-buffer
-	     (buffer-name nnmbox-mbox-buffer))
+(deffoo nnmbox-close-server (&optional server _defs)
+  (when (buffer-live-p nnmbox-mbox-buffer)
     (kill-buffer nnmbox-mbox-buffer))
   (nnoo-close-server 'nnmbox server)
   t)
 
 (deffoo nnmbox-server-opened (&optional server)
   (and (nnoo-current-server-p 'nnmbox server)
-       nnmbox-mbox-buffer
-       (buffer-name nnmbox-mbox-buffer)
-       nntp-server-buffer
-       (buffer-name nntp-server-buffer)))
+       (buffer-live-p nnmbox-mbox-buffer)
+       (buffer-live-p nntp-server-buffer)))
 
 (deffoo nnmbox-request-article (article &optional newsgroup server buffer)
   (nnmbox-possibly-change-newsgroup newsgroup server)
@@ -171,7 +168,7 @@
                 (cons nnmbox-current-group article)
               (nnmbox-article-group-number nil))))))))
 
-(deffoo nnmbox-request-group (group &optional server dont-check info)
+(deffoo nnmbox-request-group (group &optional server dont-check _info)
   (nnmbox-possibly-change-newsgroup nil server)
   (let ((active (cadr (assoc group nnmbox-group-alist))))
     (cond
@@ -210,17 +207,16 @@
    (file-name-directory nnmbox-mbox-file)
    group
    (lambda ()
-     (save-excursion
-       (let ((in-buf (current-buffer)))
-	 (set-buffer nnmbox-mbox-buffer)
+     (let ((in-buf (current-buffer)))
+       (with-current-buffer nnmbox-mbox-buffer
 	 (goto-char (point-max))
 	 (insert-buffer-substring in-buf)))
      (nnmbox-save-active nnmbox-group-alist nnmbox-active-file))))
 
-(deffoo nnmbox-close-group (group &optional server)
+(deffoo nnmbox-close-group (_group &optional _server)
   t)
 
-(deffoo nnmbox-request-create-group (group &optional server args)
+(deffoo nnmbox-request-create-group (group &optional _server _args)
   (nnmail-activate 'nnmbox)
   (unless (assoc group nnmbox-group-alist)
     (push (list group (cons 1 0))
@@ -228,7 +224,7 @@
     (nnmbox-save-active nnmbox-group-alist nnmbox-active-file))
   t)
 
-(deffoo nnmbox-request-list (&optional server)
+(deffoo nnmbox-request-list (&optional _server)
   (save-excursion
     (let ((nnmail-file-coding-system
 	   nnmbox-active-file-coding-system))
@@ -236,11 +232,13 @@
     (setq nnmbox-group-alist (nnmail-get-active))
     t))
 
-(deffoo nnmbox-request-newgroups (date &optional server)
+(deffoo nnmbox-request-newgroups (_date &optional server)
   (nnmbox-request-list server))
 
-(deffoo nnmbox-request-list-newsgroups (&optional server)
+(deffoo nnmbox-request-list-newsgroups (&optional _server)
   (nnheader-report 'nnmbox "LIST NEWSGROUPS is not implemented."))
+
+(defvar nnml-current-directory)
 
 (deffoo nnmbox-request-expire-articles
     (articles newsgroup &optional server force)
@@ -282,8 +280,8 @@
       (nconc rest articles))))
 
 (deffoo nnmbox-request-move-article
-    (article group server accept-form &optional last move-is-internal)
-  (let ((buf (get-buffer-create " *nnmbox move*"))
+    (article group server accept-form &optional last _move-is-internal)
+  (let ((buf (gnus-get-buffer-create " *nnmbox move*"))
 	result)
     (and
      (nnmbox-request-article article group server)
@@ -295,7 +293,7 @@
 	       "^X-Gnus-Newsgroup:"
 	       (save-excursion (search-forward "\n\n" nil t) (point)) t)
 	 (gnus-delete-line))
-       (setq result (eval accept-form))
+       (setq result (eval accept-form t))
        (kill-buffer buf)
        result)
      (save-excursion
@@ -463,8 +461,7 @@
   (when (and server
 	     (not (nnmbox-server-opened server)))
     (nnmbox-open-server server))
-  (when (or (not nnmbox-mbox-buffer)
-	    (not (buffer-name nnmbox-mbox-buffer)))
+  (unless (buffer-live-p nnmbox-mbox-buffer)
     (nnmbox-read-mbox))
   (when (not nnmbox-group-alist)
     (nnmail-activate 'nnmbox))
@@ -617,26 +614,24 @@
 	  (dir (file-name-directory nnmbox-mbox-file)))
       (and dir (gnus-make-directory dir))
       (nnmail-write-region (point-min) (point-min)
-			   nnmbox-mbox-file t 'nomesg))))
+			   nnmbox-mbox-file t 'nomesg nil 'excl))))
 
 (defun nnmbox-read-mbox ()
   (nnmail-activate 'nnmbox)
   (nnmbox-create-mbox)
-  (if (and nnmbox-mbox-buffer
-	   (buffer-name nnmbox-mbox-buffer)
+  (if (and (buffer-live-p nnmbox-mbox-buffer)
 	   (with-current-buffer nnmbox-mbox-buffer
 	     (= (buffer-size) (nnheader-file-size nnmbox-mbox-file))))
       ()
-    (save-excursion
-      (let ((delim (concat "^" message-unix-mail-delimiter))
-	    (alist nnmbox-group-alist)
-	    (nnmbox-group-building-active-articles t)
-	    start end end-header number)
-	(set-buffer (setq nnmbox-mbox-buffer
-			  (let ((nnheader-file-coding-system
-				 nnmbox-file-coding-system))
-			    (nnheader-find-file-noselect
-			     nnmbox-mbox-file t t))))
+    (let ((delim (concat "^" message-unix-mail-delimiter))
+          (alist nnmbox-group-alist)
+          (nnmbox-group-building-active-articles t)
+          start end end-header number)
+      (with-current-buffer (setq nnmbox-mbox-buffer
+                                 (let ((nnheader-file-coding-system
+                                        nnmbox-file-coding-system))
+                                   (nnheader-find-file-noselect
+                                    nnmbox-mbox-file t t)))
 	(mm-enable-multibyte)
 	(buffer-disable-undo)
 	(gnus-add-buffer)

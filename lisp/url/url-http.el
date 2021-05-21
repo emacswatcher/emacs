@@ -1,6 +1,6 @@
 ;;; url-http.el --- HTTP retrieval routines  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999, 2001, 2004-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1999, 2001, 2004-2021 Free Software Foundation, Inc.
 
 ;; Author: Bill Perry <wmperry@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -66,7 +66,7 @@
 
 (defconst url-http-default-port 80 "Default HTTP port.")
 (defconst url-http-asynchronous-p t "HTTP retrievals are asynchronous.")
-(defalias 'url-http-expand-file-name 'url-default-expander)
+(defalias 'url-http-expand-file-name #'url-default-expander)
 
 (defvar url-http-real-basic-auth-storage nil)
 (defvar url-http-proxy-basic-auth-storage nil)
@@ -150,7 +150,7 @@ request.")
 ;; These routines will allow us to implement persistent HTTP
 ;; connections.
 (defsubst url-http-debug (&rest args)
-  (apply 'url-debug 'http args))
+  (apply #'url-debug 'http args))
 
 (defun url-http-mark-connection-as-busy (host port proc)
   (url-http-debug "Marking connection as busy: %s:%d %S" host port proc)
@@ -225,7 +225,7 @@ request.")
         (os-info (unless (and (listp url-privacy-level)
                               (memq 'os url-privacy-level))
                    (format "(%s; %s)" url-system-type url-os-type)))
-        (url-info (format "URL/%s" url-version)))
+        (url-info (format "URL/Emacs")))
     (string-join (delq nil (list package-info url-info
                                  emacs-info os-info))
                  " ")))
@@ -329,7 +329,10 @@ Use `url-http-referer' as the Referer-header (subject to `url-privacy-level')."
              ;; The request
              (or url-http-method "GET") " "
              (url-http--encode-string
-              (if using-proxy (url-recreate-url url-http-target-url) real-fname))
+              (if (and using-proxy
+                       ;; Bug#35969.
+                       (not (equal "https" (url-type url-http-target-url))))
+                  (url-recreate-url url-http-target-url) real-fname))
              " HTTP/" url-http-version "\r\n"
              ;; Version of MIME we speak
              "MIME-Version: 1.0\r\n"
@@ -453,6 +456,16 @@ Return the number of characters removed."
 	auth
 	(strength 0))
 
+    ;; If we're here, then we got a 40x Unauthorized response from the
+    ;; server.  If we already have "Authorization" in the extra
+    ;; headers, then this means that we've already tried sending
+    ;; credentials to the server, and they were wrong, so just give
+    ;; up.
+    (let ((authorization (assoc "Authorization" url-http-extra-headers)))
+      (when (and authorization
+		 (not (string-match "^NTLM " (cdr authorization))))
+	(error "Wrong authorization used for %s" url)))
+
     ;; find strongest supported auth
     (dolist (this-auth auths)
       (setq this-auth (url-eat-trailing-space
@@ -529,6 +542,24 @@ work correctly."
 
 (declare-function gnutls-peer-status "gnutls.c" (proc))
 (declare-function gnutls-negotiate "gnutls.el" t t)
+
+(defun url-http--insert-file-helper (buffer url &optional visit)
+  (with-current-buffer buffer
+    (when (bound-and-true-p url-http-response-status)
+      ;; Don't signal an error if VISIT is non-nil, because
+      ;; 'insert-file-contents' doesn't.  This is required to
+      ;; support, e.g., 'browse-url-emacs', which is a fancy way of
+      ;; visiting the HTML source of a URL: in that case, we want to
+      ;; display a file buffer even if the URL does not exist and
+      ;; 'url-retrieve-synchronously' returns 404 or whatever.
+      (unless (or visit
+                  (or (and (>= url-http-response-status 200)
+                           (< url-http-response-status 300))
+                      (= url-http-response-status 304))) ; "Not modified"
+        (let ((desc (nth 2 (assq url-http-response-status url-http-codes))))
+          (kill-buffer buffer)
+          ;; Signal file-error per bug#16733.
+          (signal 'file-error (list url desc)))))))
 
 (defun url-http-parse-headers ()
  "Parse and handle HTTP specific headers.
@@ -673,15 +704,7 @@ should be shown to the user."
 	    ;; Treat everything like '300'
 	    nil))
 	 (when redirect-uri
-	   ;; Clean off any whitespace and/or <...> cruft.
-	   (if (string-match "\\([^ \t]+\\)[ \t]" redirect-uri)
-	       (setq redirect-uri (match-string 1 redirect-uri)))
-	   (if (string-match "^<\\(.*\\)>$" redirect-uri)
-	       (setq redirect-uri (match-string 1 redirect-uri)))
-
-	   ;; Some stupid sites (like sourceforge) send a
-	   ;; non-fully-qualified URL (ie: /), which royally confuses
-	   ;; the URL library.
+	   ;; Handle relative redirect URIs.
 	   (if (not (string-match url-nonrelative-link redirect-uri))
                ;; Be careful to use the real target URL, otherwise we may
                ;; compute the redirection relative to the URL of the proxy.
@@ -720,12 +743,12 @@ should be shown to the user."
 		   ;; without changing the API.  Instead url-retrieve should
 		   ;; either simply not return the "destination" buffer, or it
 		   ;; should take an optional `dest-buf' argument.
-		   (set (make-local-variable 'url-redirect-buffer)
-			(url-retrieve-internal
-			 redirect-uri url-callback-function
-			 url-callback-arguments
-			 (url-silent url-current-object)
-			 (not (url-use-cookies url-current-object))))
+                   (setq-local url-redirect-buffer
+                               (url-retrieve-internal
+                                redirect-uri url-callback-function
+                                url-callback-arguments
+                                (url-silent url-current-object)
+                                (not (url-use-cookies url-current-object))))
 		   (url-mark-buffer-as-dead buffer))
 	       ;; We hit url-max-redirections, so issue an error and
 	       ;; stop redirecting.
@@ -924,6 +947,10 @@ should be shown to the user."
 	      class url-http-response-status)))
     (if (not success)
 	(url-mark-buffer-as-dead buffer)
+      ;; Narrow the buffer for url-handle-content-transfer-encoding to
+      ;; find only the headers relevant to this transaction.
+      (and (not (buffer-narrowed-p))
+                (mail-narrow-to-head))
       (url-handle-content-transfer-encoding))
     (url-http-debug "Finished parsing HTTP headers: %S" success)
     (widen)
@@ -934,7 +961,7 @@ should be shown to the user."
                   (start end &optional allow-partial))
 
 (defun url-handle-content-transfer-encoding ()
-  (let ((encoding (mail-fetch-field "content-encoding")))
+  (let ((encoding (mail-fetch-field "content-encoding" nil nil nil t)))
     (when (and encoding
 	       (fboundp 'zlib-available-p)
 	       (zlib-available-p)
@@ -992,14 +1019,17 @@ should be shown to the user."
                    (setq url-using-proxy
                          (url-generic-parse-url url-using-proxy)))
                  (url-http url-current-object url-callback-function
-                           url-callback-arguments (current-buffer)))))
+                           url-callback-arguments (current-buffer)
+                           (and (string= "https" (url-type url-current-object))
+                                'tls)))))
 	    ((url-http-parse-headers)
 	     (url-http-activate-callback))))))
 
 (defun url-http-simple-after-change-function (_st _nd _length)
   ;; Function used when we do NOT know how long the document is going to be
   ;; Just _very_ simple 'downloaded %d' type of info.
-  (url-lazy-message "Reading %s..." (file-size-human-readable (buffer-size))))
+  (url-lazy-message "Reading %s..."
+                    (funcall byte-count-to-string-function (buffer-size))))
 
 (defun url-http-content-length-after-change-function (_st nd _length)
   "Function used when we DO know how long the document is going to be.
@@ -1012,16 +1042,16 @@ the callback to be triggered."
        (url-percentage (- nd url-http-end-of-headers)
 		       url-http-content-length)
        url-http-content-type
-       (file-size-human-readable (- nd url-http-end-of-headers))
-       (file-size-human-readable url-http-content-length)
+       (funcall byte-count-to-string-function (- nd url-http-end-of-headers))
+       (funcall byte-count-to-string-function url-http-content-length)
        (url-percentage (- nd url-http-end-of-headers)
 		       url-http-content-length))
     (url-display-percentage
      "Reading... %s of %s (%d%%)"
      (url-percentage (- nd url-http-end-of-headers)
 		     url-http-content-length)
-     (file-size-human-readable (- nd url-http-end-of-headers))
-     (file-size-human-readable url-http-content-length)
+     (funcall byte-count-to-string-function (- nd url-http-end-of-headers))
+     (funcall byte-count-to-string-function url-http-content-length)
      (url-percentage (- nd url-http-end-of-headers)
 		     url-http-content-length)))
 
@@ -1080,14 +1110,18 @@ the end of the document."
 	  (if no-initial-crlf (skip-chars-forward "\r\n"))
 	  (if (not (looking-at regexp))
 	      (progn
-	   ;; Must not have received the entirety of the chunk header,
+	        ;; Must not have received the entirety of the chunk header,
 		;; need to spin some more.
 		(url-http-debug "Did not see start of chunk @ %d!" (point))
 		(setq read-next-chunk nil))
+            ;; The data we got may have started in the middle of the
+            ;; initial chunk header, so move back to the start of the
+            ;; line and re-compute.
+            (when (= url-http-chunked-counter 0)
+              (beginning-of-line)
+              (looking-at regexp))
  	    (add-text-properties (match-beginning 0) (match-end 0)
-				 (list 'start-open t
-				       'end-open t
-				       'chunked-encoding t
+                                 (list 'chunked-encoding t
 				       'face 'cursor
 				       'invisible t))
 	    (setq url-http-chunked-length (string-to-number (buffer-substring
@@ -1099,8 +1133,7 @@ the end of the document."
 					  (or url-http-chunked-start
 					      (make-marker))
 					  (match-end 0)))
-;	    (if (not url-http-debug)
-		(delete-region (match-beginning 0) (match-end 0));)
+	    (delete-region (match-beginning 0) (match-end 0))
 	    (url-http-debug "Saw start of chunk %d (length=%d, start=%d"
 			    url-http-chunked-counter url-http-chunked-length
 			    (marker-position url-http-chunked-start))
@@ -1172,8 +1205,7 @@ the end of the document."
 	  ;; We got back a headerless malformed response from the
 	  ;; server.
 	  (url-http-activate-callback))
-	 ((or (= url-http-response-status 204)
-	      (= url-http-response-status 205))
+	 ((memq url-http-response-status '(204 205))
 	  (url-http-debug "%d response must have headers only (%s)."
 			  url-http-response-status (buffer-name))
 	  (when (url-http-parse-headers)
@@ -1208,11 +1240,11 @@ the end of the document."
 	  (url-http-debug
 	   "Saw HTTP/0.9 response, connection closed means end of document.")
 	  (setq url-http-after-change-function
-		'url-http-simple-after-change-function))
+		#'url-http-simple-after-change-function))
 	 ((equal url-http-transfer-encoding "chunked")
 	  (url-http-debug "Saw chunked encoding.")
 	  (setq url-http-after-change-function
-		'url-http-chunked-encoding-after-change-function)
+		#'url-http-chunked-encoding-after-change-function)
 	  (when (> nd url-http-end-of-headers)
 	    (url-http-debug
 	     "Calling initial chunked-encoding for extra data at end of headers")
@@ -1223,7 +1255,7 @@ the end of the document."
 	  (url-http-debug
 	   "Got a content-length, being smart about document end.")
 	  (setq url-http-after-change-function
-		'url-http-content-length-after-change-function)
+		#'url-http-content-length-after-change-function)
 	  (cond
 	   ((= 0 url-http-content-length)
 	    ;; We got a NULL body!  Activate the callback
@@ -1244,7 +1276,7 @@ the end of the document."
 	 (t
 	  (url-http-debug "No content-length, being dumb.")
 	  (setq url-http-after-change-function
-		'url-http-simple-after-change-function)))))
+		#'url-http-simple-after-change-function)))))
     ;; We are still at the beginning of the buffer... must just be
     ;; waiting for a response.
     (url-http-debug "Spinning waiting for headers...")
@@ -1260,7 +1292,7 @@ passing it an updated value of CBARGS as arguments.  The first
 element in CBARGS should be a plist describing what has happened
 so far during the request, as described in the docstring of
 `url-retrieve' (if in doubt, specify nil).  The current buffer
-then CALLBACK is executed is the retrieval buffer.
+when CALLBACK is executed is the retrieval buffer.
 
 Optional arg RETRY-BUFFER, if non-nil, specifies the buffer of a
 previous `url-http' call, which is being re-attempted.
@@ -1343,7 +1375,7 @@ The return value of this function is the retrieval buffer."
               url-http-referer referer)
 
 	(set-process-buffer connection buffer)
-	(set-process-filter connection 'url-http-generic-filter)
+	(set-process-filter connection #'url-http-generic-filter)
 	(pcase (process-status connection)
           ('connect
            ;; Asynchronous connection
@@ -1357,19 +1389,28 @@ The return value of this function is the retrieval buffer."
                                             (url-type url-current-object)))
                (url-https-proxy-connect connection)
              (set-process-sentinel connection
-                                   'url-http-end-of-document-sentinel)
+                                   #'url-http-end-of-document-sentinel)
              (process-send-string connection (url-http-create-request)))))))
     buffer))
 
 (defun url-https-proxy-connect (connection)
-  (setq url-http-after-change-function 'url-https-proxy-after-change-function)
-  (process-send-string connection (format (concat "CONNECT %s:%d HTTP/1.1\r\n"
-                                                  "Host: %s\r\n"
-                                                  "\r\n")
-                                          (url-host url-current-object)
-                                          (or (url-port url-current-object)
-                                              url-https-default-port)
-                                          (url-host url-current-object))))
+  (setq url-http-after-change-function #'url-https-proxy-after-change-function)
+  (process-send-string
+   connection
+   (format
+    (concat "CONNECT %s:%d HTTP/1.1\r\n"
+            "Host: %s\r\n"
+            (let ((proxy-auth (let ((url-basic-auth-storage
+                                     'url-http-proxy-basic-auth-storage))
+                                (url-get-authentication url-http-proxy nil
+                                                        'any nil))))
+              (and proxy-auth
+                   (concat "Proxy-Authorization: " proxy-auth "\r\n")))
+            "\r\n")
+    (url-host url-current-object)
+    (or (url-port url-current-object)
+        url-https-default-port)
+    (url-host url-current-object))))
 
 (defun url-https-proxy-after-change-function (_st _nd _length)
   (let* ((process-buffer (current-buffer))
@@ -1401,12 +1442,10 @@ The return value of this function is the retrieval buffer."
                   (with-current-buffer process-buffer (erase-buffer))
                   (set-process-buffer tls-connection process-buffer)
                   (setq url-http-after-change-function
-                        'url-http-wait-for-headers-change-function)
+                        #'url-http-wait-for-headers-change-function)
                   (set-process-filter tls-connection 'url-http-generic-filter)
                   (process-send-string tls-connection
-                                       ;; Use the non-proxy form of the request
-                                       (let (url-http-proxy)
-                                         (url-http-create-request))))
+                                       (url-http-create-request)))
               (gnutls-error
                (url-http-activate-callback)
                (error "gnutls-error: %s" e))
@@ -1472,7 +1511,7 @@ The return value of this function is the retrieval buffer."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defalias 'url-http-symbol-value-in-buffer
   (if (fboundp 'symbol-value-in-buffer)
-      'symbol-value-in-buffer
+      #'symbol-value-in-buffer
     (lambda (symbol buffer &optional unbound-value)
       "Return the value of SYMBOL in BUFFER, or UNBOUND-VALUE if it is unbound."
       (with-current-buffer buffer

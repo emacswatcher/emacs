@@ -1,3 +1,5 @@
+;;; linux.el  -*- lexical-binding:t -*-
+
 ;; The Linux console handles Latin-1 by default.
 
 (declare-function gpm-mouse-enable "t-mouse" ())

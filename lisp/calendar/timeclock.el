@@ -1,10 +1,10 @@
 ;;; timeclock.el --- mode for keeping track of how much you work  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2021 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 ;; Created: 25 Mar 1999
-;; Version: 2.6.1
+;; Old-Version: 2.6.1
 ;; Keywords: calendar data
 
 ;; This file is part of GNU Emacs.
@@ -37,8 +37,6 @@
 ;; You'll probably want to bind the timeclock commands to some handy
 ;; keystrokes.  At the moment, C-x t is unused:
 ;;
-;;   (require 'timeclock)
-;;
 ;;   (define-key ctl-x-map "ti" 'timeclock-in)
 ;;   (define-key ctl-x-map "to" 'timeclock-out)
 ;;   (define-key ctl-x-map "tc" 'timeclock-change)
@@ -70,8 +68,6 @@
 ;; `timeclock-reread-log'.  This will recompute any discrepancies in
 ;; your average working time, and will make sure that the various
 ;; display functions return the correct value.
-
-;;; History:
 
 ;;; Code:
 
@@ -193,6 +189,8 @@ to today."
 (defcustom timeclock-load-hook nil
   "Hook that gets run after timeclock has been loaded."
   :type 'hook)
+(make-obsolete-variable 'timeclock-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 
 (defcustom timeclock-in-hook nil
   "A hook run every time an \"in\" event is recorded."
@@ -515,7 +513,7 @@ non-nil, the amount returned will be relative to past time worked."
       string)))
 
 (define-obsolete-function-alias 'timeclock-time-to-seconds 'float-time "26.1")
-(define-obsolete-function-alias 'timeclock-seconds-to-time 'encode-time "26.1")
+(define-obsolete-function-alias 'timeclock-seconds-to-time 'time-convert "26.1")
 
 ;; Should today-only be removed in favor of timeclock-relative? - gm
 (defsubst timeclock-when-to-leave (&optional today-only)
@@ -553,7 +551,7 @@ relative only to the time worked today, and not to past time."
 OLD-DEFAULT hours are set for every day that has no number indicated."
   (interactive "P")
   (if old-default (setq old-default (prefix-numeric-value old-default))
-    (error "`timelog-make-hours-explicit' requires an explicit argument"))
+    (error "`timeclock-make-hours-explicit' requires an explicit argument"))
   (let ((extant-timelog (find-buffer-visiting timeclock-file))
 	current-date)
     (with-current-buffer (find-file-noselect timeclock-file t)
@@ -586,23 +584,20 @@ OLD-DEFAULT hours are set for every day that has no number indicated."
 (defvar timeclock-last-project nil)
 
 (defun timeclock-completing-read (prompt alist &optional default)
-  "A version of `completing-read' that works on both Emacs and XEmacs.
+  "A version of `completing-read'.
 PROMPT, ALIST and DEFAULT are used for the PROMPT, COLLECTION and DEF
 arguments of `completing-read'."
-  (if (featurep 'xemacs)
-      (let ((str (completing-read prompt alist)))
-	(if (or (null str) (zerop (length str)))
-	    default
-	  str))
-    (completing-read prompt alist nil nil nil nil default)))
+  (declare (obsolete completing-read "27.1"))
+  (completing-read prompt alist nil nil nil nil default))
 
 (defun timeclock-ask-for-project ()
   "Ask the user for the project they are clocking into."
-  (timeclock-completing-read
-   (format "Clock into which project (default %s): "
-	   (or timeclock-last-project
-	       (car timeclock-project-list)))
+  (completing-read
+   (format-prompt "Clock into which project"
+	          (or timeclock-last-project
+	              (car timeclock-project-list)))
    timeclock-project-list
+   nil nil nil nil
    (or timeclock-last-project
        (car timeclock-project-list))))
 
@@ -610,8 +605,7 @@ arguments of `completing-read'."
 
 (defun timeclock-ask-for-reason ()
   "Ask the user for the reason they are clocking out."
-  (timeclock-completing-read "Reason for clocking out: "
-			     timeclock-reason-list))
+  (completing-read "Reason for clocking out: " timeclock-reason-list))
 
 (define-obsolete-function-alias 'timeclock-update-modeline
   'timeclock-update-mode-line "24.3")
@@ -1143,9 +1137,9 @@ discrepancy, today's discrepancy, and the time worked today."
   "Given a time within a day, return 0:0:0 within that day.
 If optional argument TIME is non-nil, use that instead of the current time."
   (let ((decoded (decode-time time)))
-    (setcar (nthcdr 0 decoded) 0)
-    (setcar (nthcdr 1 decoded) 0)
-    (setcar (nthcdr 2 decoded) 0)
+    (setf (decoded-time-second decoded) 0)
+    (setf (decoded-time-minute decoded) 0)
+    (setf (decoded-time-hour decoded) 0)
     (encode-time decoded)))
 
 (defun timeclock-mean (l)

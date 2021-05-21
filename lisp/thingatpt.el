@@ -1,6 +1,6 @@
 ;;; thingatpt.el --- get the `thing' at point  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1991-1998, 2000-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1991-1998, 2000-2021 Free Software Foundation, Inc.
 
 ;; Author: Mike Williams <mikew@gopher.dosli.govt.nz>
 ;; Maintainer: emacs-devel@gnu.org
@@ -52,7 +52,29 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (provide 'thingatpt)
+
+(defvar thing-at-point-provider-alist nil
+  "Alist of providers for returning a \"thing\" at point.
+This variable can be set globally, or appended to buffer-locally
+by modes, to provide functions that will return a \"thing\" at
+point.  The first provider for the \"thing\" that returns a
+non-nil value wins.
+
+For instance, a major mode could say:
+
+\(setq-local thing-at-point-provider-alist
+            (append thing-at-point-provider-alist
+                    \\='((url . my-mode--url-at-point))))
+
+to provide a way to get an `url' at point in that mode.  The
+provider functions are called with no parameters at the point in
+question.
+
+\"things\" include `symbol', `list', `sexp', `defun', `filename',
+`url', `email', `uuid', `word', `sentence', `whitespace', `line',
+and `page'.")
 
 ;; Basic movement
 
@@ -143,11 +165,18 @@ strip text properties from the return value.
 See the file `thingatpt.el' for documentation on how to define
 a symbol as a valid THING."
   (let ((text
-         (if (get thing 'thing-at-point)
-             (funcall (get thing 'thing-at-point))
+         (cond
+          ((cl-loop for (pthing . function) in thing-at-point-provider-alist
+                    when (eq pthing thing)
+                    for result = (funcall function)
+                    when result
+                    return result))
+          ((get thing 'thing-at-point)
+           (funcall (get thing 'thing-at-point)))
+          (t
            (let ((bounds (bounds-of-thing-at-point thing)))
              (when bounds
-               (buffer-substring (car bounds) (cdr bounds)))))))
+               (buffer-substring (car bounds) (cdr bounds))))))))
     (when (and text no-properties (sequencep text))
       (set-text-properties 0 (length text) nil text))
     text))
@@ -194,7 +223,9 @@ The bounds of THING are determined by `bounds-of-thing-at-point'."
     (if (or (eq char-syntax ?\))
 	    (and (eq char-syntax ?\") (nth 3 (syntax-ppss))))
 	(forward-char 1)
-      (forward-sexp 1))))
+      (condition-case _
+          (forward-sexp 1)
+        (scan-error nil)))))
 
 (define-obsolete-function-alias 'end-of-sexp
   'thing-at-point--end-of-sexp "25.1"
@@ -215,6 +246,15 @@ The bounds of THING are determined by `bounds-of-thing-at-point'."
   "This is an internal thingatpt function and should not be used.")
 
 (put 'sexp 'beginning-op 'thing-at-point--beginning-of-sexp)
+
+;; Symbols
+
+(put 'symbol 'beginning-op 'thing-at-point--beginning-of-symbol)
+
+(defun thing-at-point--beginning-of-symbol ()
+  "Move point to the beginning of the current symbol."
+  (and (re-search-backward "\\(\\sw\\|\\s_\\)+")
+       (skip-syntax-backward "w_")))
 
 ;;  Lists
 
@@ -256,7 +296,7 @@ E.g.:
 
 ;;  Filenames
 
-(defvar thing-at-point-file-name-chars "-~/[:alnum:]_.${}#%,:"
+(defvar thing-at-point-file-name-chars "-@~/[:alnum:]_.${}#%,:"
   "Characters allowable in filenames.")
 
 (define-thing-chars filename thing-at-point-file-name-chars)
@@ -276,7 +316,7 @@ If nil, construct the regexp from `thing-at-point-uri-schemes'.")
   "Regexp matching a URI without a scheme component.")
 
 (defvar thing-at-point-uri-schemes
-  ;; Officials from http://www.iana.org/assignments/uri-schemes.html
+  ;; Officials from https://www.iana.org/assignments/uri-schemes.html
   '("aaa://" "about:" "acap://" "apt:" "bzr://" "bzr+ssh://"
     "attachment:/" "chrome://" "cid:" "content://" "crid://" "cvs://"
     "data:" "dav:" "dict://" "doi:" "dns:" "dtn:" "feed:" "file:/"
@@ -332,7 +372,7 @@ the bounds of a possible ill-formed URI (one lacking a scheme)."
       ;; may contain parentheses but may not contain spaces (RFC3986).
       (let* ((allowed-chars "--:=&?$+@-Z_[:alpha:]~#,%;*()!'")
 	     (skip-before "^[0-9a-zA-Z]")
-	     (skip-after  ":;.,!?")
+	     (skip-after  ":;.,!?'")
 	     (pt (point))
 	     (beg (save-excursion
 		    (skip-chars-backward allowed-chars)
@@ -560,10 +600,14 @@ with angle brackets.")
              (buffer-substring-no-properties
               (car boundary-pair) (cdr boundary-pair))))))
 
-;;  Buffer
+;;  Buffer and region
 
 (put 'buffer 'end-op (lambda () (goto-char (point-max))))
 (put 'buffer 'beginning-op (lambda () (goto-char (point-min))))
+(put 'region 'bounds-of-thing-at-point
+     (lambda ()
+       (when (use-region-p)
+         (cons (region-beginning) (region-end)))))
 
 ;; UUID
 
@@ -585,13 +629,13 @@ See RFC 4122 for the description of the format.")
 
 ;;  Aliases
 
-(defun word-at-point ()
+(defun word-at-point (&optional no-properties)
   "Return the word at point.  See `thing-at-point'."
-  (thing-at-point 'word))
+  (thing-at-point 'word no-properties))
 
-(defun sentence-at-point ()
+(defun sentence-at-point (&optional no-properties)
   "Return the sentence at point.  See `thing-at-point'."
-  (thing-at-point 'sentence))
+  (thing-at-point 'sentence no-properties))
 
 (defun thing-at-point--read-from-whole-string (str)
   "Read a Lisp expression from STR.
@@ -630,10 +674,17 @@ Signal an error if the entire string was not used."
     (if thing (intern thing))))
 ;;;###autoload
 (defun number-at-point ()
-  "Return the number at point, or nil if none is found."
-  (when (thing-at-point-looking-at "-?[0-9]+\\.?[0-9]*" 500)
-    (string-to-number
-     (buffer-substring (match-beginning 0) (match-end 0)))))
+  "Return the number at point, or nil if none is found.
+Decimal numbers like \"14\" or \"-14.5\", as well as hex numbers
+like \"0xBEEF09\" or \"#xBEEF09\", are recognized."
+  (when (thing-at-point-looking-at
+         "\\(-?[0-9]+\\.?[0-9]*\\)\\|\\(0x\\|#x\\)\\([a-zA-Z0-9]+\\)" 500)
+    (if (match-beginning 1)
+        (string-to-number
+         (buffer-substring (match-beginning 1) (match-end 1)))
+      (string-to-number
+       (buffer-substring (match-beginning 3) (match-end 3))
+       16))))
 
 (put 'number 'thing-at-point 'number-at-point)
 ;;;###autoload

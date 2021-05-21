@@ -1,6 +1,6 @@
 ;;; nxml-mode.el --- a new XML mode  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2003-2004, 2007-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2004, 2007-2021 Free Software Foundation, Inc.
 
 ;; Author: James Clark
 ;; Keywords: wp, hypermedia, languages, XML
@@ -54,26 +54,30 @@
   "Non-nil means display glyph following character reference.
 The glyph is displayed in face `nxml-glyph'."
   :group 'nxml
-  :type 'boolean)
+  :type 'boolean
+  :safe #'booleanp)
 
 (defcustom nxml-sexp-element-flag t
   "Non-nil means sexp commands treat an element as a single expression."
   :version "27.1"                       ; nil -> t
   :group 'nxml
-  :type 'boolean)
+  :type 'boolean
+  :safe #'booleanp)
 
 (defcustom nxml-slash-auto-complete-flag nil
   "Non-nil means typing a slash automatically completes the end-tag.
 This is used by `nxml-electric-slash'."
   :group 'nxml
-  :type 'boolean)
+  :type 'boolean
+  :safe #'booleanp)
 
 (defcustom nxml-child-indent 2
   "Indentation for the children of an element relative to the start-tag.
 This only applies when the line or lines containing the start-tag contains
 nothing else other than that start-tag."
   :group 'nxml
-  :type 'integer)
+  :type 'integer
+  :safe #'integerp)
 
 (defcustom nxml-attribute-indent 4
   "Indentation for the attributes of an element relative to the start-tag.
@@ -81,12 +85,14 @@ This only applies when the first attribute of a tag starts a line.
 In other cases, the first attribute on one line is indented the same
 as the first attribute on the previous line."
   :group 'nxml
-  :type 'integer)
+  :type 'integer
+  :safe #'integerp)
 
 (defcustom nxml-bind-meta-tab-to-complete-flag t
   "Non-nil means to use nXML completion in \\[completion-at-point]."
   :group 'nxml
-  :type 'boolean)
+  :type 'boolean
+  :safe #'booleanp)
 
 (defcustom nxml-prefer-utf-16-to-utf-8-flag nil
   "Non-nil means prefer UTF-16 to UTF-8 when saving a buffer.
@@ -94,7 +100,8 @@ This is used only when a buffer does not contain an encoding declaration
 and when its current `buffer-file-coding-system' specifies neither UTF-16
 nor UTF-8."
   :group 'nxml
-  :type 'boolean)
+  :type 'boolean
+  :safe #'booleanp)
 
 (defcustom nxml-prefer-utf-16-little-to-big-endian-flag (eq system-type
 							    'windows-nt)
@@ -103,20 +110,25 @@ This is used only for saving a buffer; when reading the byte-order is
 auto-detected. It may be relevant both when there is no encoding declaration
 and when the encoding declaration specifies `UTF-16'."
   :group 'nxml
-  :type 'boolean)
+  :type 'boolean
+  :safe #'booleanp)
 
 (defcustom nxml-default-buffer-file-coding-system nil
   "Default value for `buffer-file-coding-system' for a buffer for a new file.
-A value of nil means use the default value of `buffer-file-coding-system' as normal.
-A buffer's `buffer-file-coding-system' affects what \\[nxml-insert-xml-declaration] inserts."
+A value of nil means use the default value of
+`buffer-file-coding-system' as normal.
+A buffer's `buffer-file-coding-system' affects what
+\\[nxml-insert-xml-declaration] inserts."
   :group 'nxml
-  :type 'coding-system)
+  :type 'coding-system
+  :safe #'coding-system-p)
 
 (defcustom nxml-auto-insert-xml-declaration-flag nil
   "Non-nil means automatically insert an XML declaration in a new file.
 The XML declaration is inserted using `nxml-insert-xml-declaration'."
   :group 'nxml
-  :type 'boolean)
+  :type 'boolean
+  :safe #'booleanp)
 
 (defface nxml-delimited-data
   '((t (:inherit font-lock-doc-face)))
@@ -424,6 +436,15 @@ reference.")
     (when rng-validate-mode
       (rng-validate-while-idle (current-buffer)))))
 
+(defvar nxml-prolog-end) ;; nxml-rap.el
+
+(defun nxml-syntax-propertize (start end)
+  "Syntactic keywords for `nxml-mode'."
+  ;; Like `sgml-syntax-propertize', but rescan prolog if needed.
+  (when (< start nxml-prolog-end)
+    (nxml-scan-prolog))
+  (sgml-syntax-propertize start end))
+
 (defvar tildify-space-string)
 (defvar tildify-foreach-region-function)
 
@@ -518,19 +539,16 @@ Many aspects this mode can be customized using
 	(nxml-with-invisible-motion
 	  (nxml-scan-prolog)))))
   (setq-local syntax-ppss-table sgml-tag-syntax-table)
-  (setq-local syntax-propertize-function #'sgml-syntax-propertize)
+  (setq-local syntax-propertize-function #'nxml-syntax-propertize)
   (add-hook 'change-major-mode-hook #'nxml-cleanup nil t)
 
-  ;; Emacs 23 handles the encoding attribute on the xml declaration
-  ;; transparently to nxml-mode, so there is no longer a need for the below
-  ;; hook. The hook also had the drawback of overriding explicit user
-  ;; instruction to save as some encoding other than utf-8.
-  ;;(add-hook 'write-contents-hooks #'nxml-prepare-to-save)
   (when (not (and (buffer-file-name) (file-exists-p (buffer-file-name))))
     (when (and nxml-default-buffer-file-coding-system
 	       (not (local-variable-p 'buffer-file-coding-system)))
       (setq buffer-file-coding-system nxml-default-buffer-file-coding-system))
-    (when nxml-auto-insert-xml-declaration-flag
+    ;; When starting a new file, insert the XML declaration.
+    (when (and nxml-auto-insert-xml-declaration-flag
+               (zerop (buffer-size)))
       (nxml-insert-xml-declaration)))
 
   (setq font-lock-defaults
@@ -540,7 +558,9 @@ Many aspects this mode can be customized using
           nil  ; no special syntax table
           (font-lock-extend-region-functions . (nxml-extend-region))
           (jit-lock-contextually . t)
-          (font-lock-unfontify-region-function . nxml-unfontify-region)))
+          (font-lock-unfontify-region-function . nxml-unfontify-region)
+          (font-lock-syntactic-face-function
+           . sgml-font-lock-syntactic-face)))
 
   (with-demoted-errors (rng-nxml-mode-init)))
 
@@ -553,7 +573,7 @@ Many aspects this mode can be customized using
     (widen)
     (with-silent-modifications
       (nxml-with-invisible-motion
-       (remove-text-properties (point-min) (point-max) '(face)))))
+       (remove-text-properties (point-min) (point-max) '(face nil)))))
   (remove-hook 'change-major-mode-hook #'nxml-cleanup t))
 
 (defun nxml-degrade (context err)
@@ -2222,7 +2242,7 @@ ENDP is t in the former case, nil in the latter."
     (skip-line-prefix fill-prefix)
     fill-prefix))
 
-(defun nxml-newline-and-indent (soft)
+(defun nxml-newline-and-indent (&optional soft)
   (delete-horizontal-space)
   (if soft (insert-and-inherit ?\n) (newline 1))
   (nxml-indent-line))
@@ -2379,7 +2399,9 @@ With a prefix argument, inserts the character directly."
 (put 'nxml-char-ref 'evaporate t)
 
 (defun nxml-char-ref-display-extra (start end n)
-  (when nxml-char-ref-extra-display
+  (when (and ;; Displaying literal newline is unhelpful.
+         (not (eql n ?\n))
+         nxml-char-ref-extra-display)
     (let ((name (or (get-char-code-property n 'name)
                     (get-char-code-property n 'old-name)))
 	  (glyph-string (and nxml-char-ref-display-glyph-flag

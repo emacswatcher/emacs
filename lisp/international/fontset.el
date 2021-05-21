@@ -1,6 +1,6 @@
-;;; fontset.el --- commands for handling fontset
+;;; fontset.el --- commands for handling fontset  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2021 Free Software Foundation, Inc.
 ;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
 ;;   2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -191,6 +191,7 @@
 	(kanbun #x319D)
 	(han #x5B57)
 	(yi #xA288)
+        (javanese #xA980)
 	(cham #xAA00)
 	(tai-viet #xAA80)
 	(hangul #xAC00)
@@ -220,9 +221,11 @@
 	(kharoshthi #x10A00)
 	(manichaean #x10AC0)
         (hanifi-rohingya #x10D00)
+        (yezidi #x10E80)
         (old-sogdian #x10F00)
         (sogdian #x10F30)
-        (elymaic #x10fe0)
+        (chorasmian #x10FB0)
+        (elymaic #x10FE0)
 	(mahajani #x11150)
 	(sinhala-archaic-number #x111E1)
 	(khojki #x11200)
@@ -235,6 +238,7 @@
 	(takri #x11680)
         (dogra #x11800)
 	(warang-citi #x118A1)
+        (dives-akuru #x11900)
         (nandinagari #x119a0)
         (zanabazar-square #x11A00)
         (soyombo #x11A50)
@@ -246,12 +250,14 @@
         (makasar #x11EE0)
 	(cuneiform #x12000)
 	(cuneiform-numbers-and-punctuation #x12400)
+	(egyptian #x13000)
 	(mro #x16A40)
 	(bassa-vah #x16AD0)
 	(pahawh-hmong #x16B11)
         (medefaidrin #x16E40)
         (tangut #x17000)
         (tangut-components #x18800)
+        (khitan-small-script #x18B00)
         (nushu #x1B170)
 	(duployan-shorthand #x1BC20)
 	(byzantine-musical-symbol #x1D000)
@@ -491,37 +497,37 @@
 		     (:registry "iso10646-1"))))
 	 (cjk-table (make-char-table nil))
 	 (script-coverage
-	  #'(lambda (script)
-	      (let ((coverage))
-		(map-char-table
-		 #'(lambda (range val)
-		     (when (eq val script)
-		       (if (consp range)
-			   (setq range (cons (car range) (cdr range))))
-		       (push range coverage)))
-		 char-script-table)
-		coverage)))
+          (lambda (script)
+            (let ((coverage))
+              (map-char-table
+               (lambda (range val)
+                 (when (eq val script)
+                   (if (consp range)
+                       (setq range (cons (car range) (cdr range))))
+                   (push range coverage)))
+               char-script-table)
+              coverage)))
 	 (data (list (vconcat (mapcar 'car cjk))))
 	 (i 0))
     (dolist (elt cjk)
       (let ((mask (ash 1 i)))
 	(map-charset-chars
-	 #'(lambda (range _arg)
-	     (let ((from (car range)) (to (cdr range)))
-	       (if (< to #x110000)
-		   (while (<= from to)
-		     (or (memq (aref char-script-table from)
-			       '(kana hangul han cjk-misc))
-			 (aset cjk-table from
-			       (logior (or (aref cjk-table from) 0) mask)))
-		     (setq from (1+ from))))))
+         (lambda (range _arg)
+           (let ((from (car range)) (to (cdr range)))
+             (if (< to #x110000)
+                 (while (<= from to)
+                   (or (memq (aref char-script-table from)
+                             '(kana hangul han cjk-misc))
+                       (aset cjk-table from
+                             (logior (or (aref cjk-table from) 0) mask)))
+                   (setq from (1+ from))))))
 	 (nth 1 elt) nil (nth 2 elt) (nth 3 elt)))
       (setq i (1+ i)))
     (map-char-table
-     #'(lambda (range val)
-	 (if (consp range)
-	     (setq range (cons (car range) (cdr range))))
-	 (push (cons range val) data))
+     (lambda (range val)
+       (if (consp range)
+           (setq range (cons (car range) (cdr range))))
+       (push (cons range val) data))
      cjk-table)
     (dolist (script scripts)
       (dolist (range (funcall script-coverage (car script)))
@@ -708,16 +714,19 @@
   ;; For simple scripts
   (dolist (script '(phonetic
 		    armenian
-		    syriac
 		    thaana
+		    syriac
 		    georgian
 		    cherokee
 		    canadian-aboriginal
+                    cham
 		    ogham
 		    runic
 		    symbol
 		    braille
 		    yi
+                    javanese
+		    tai-viet
 		    aegean-number
 		    ancient-greek-number
 		    ancient-symbol
@@ -730,17 +739,29 @@
 		    deseret
 		    shavian
 		    osmanya
+		    osage
 		    cypriot-syllabary
 		    phoenician
 		    lydian
+                    yezidi
 		    kharoshthi
-		    cuneiform
+		    manichaean
+                    chorasmian
+		    elymaic
+		    makasar
+                    dives-akuru
 		    cuneiform-numbers-and-punctuation
+		    cuneiform
+		    egyptian
+		    bassa-vah
+		    pahawh-hmong
+		    medefaidrin
 		    byzantine-musical-symbol
 		    musical-symbol
 		    ancient-greek-musical-notation
 		    tai-xuan-jing-symbol
 		    counting-rod-numeral
+		    adlam
 		    mahjong-tile
 		    domino-tile))
     (set-fontset-font "fontset-default"
@@ -1206,7 +1227,7 @@ Done when `mouse-set-font' is called."
 	  (string-match "fontset-auto[0-9]+$" fontset)
 	  (push (list (fontset-plain-name fontset) fontset) l)))
     (cons "Fontset"
-	  (sort l #'(lambda (x y) (string< (car x) (car y)))))))
+          (sort l (lambda (x y) (string< (car x) (car y)))))))
 
 (declare-function query-fontset "fontset.c" (pattern &optional regexpp))
 

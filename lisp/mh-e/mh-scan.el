@@ -1,10 +1,9 @@
-;;; mh-scan.el --- MH-E scan line constants and utilities
+;;; mh-scan.el --- MH-E scan line constants and utilities  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993, 1995, 1997, 2000-2019 Free Software Foundation,
+;; Copyright (C) 1993, 1995, 1997, 2000-2021 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Bill Wohler <wohler@newt.com>
-;; Maintainer: Bill Wohler <wohler@newt.com>
 ;; Keywords: mail
 ;; See: mh-e.el
 
@@ -27,8 +26,6 @@
 
 ;; This file contains constants and a few functions for interpreting
 ;; scan lines.
-
-;;; Change Log:
 
 ;;; Code:
 
@@ -498,7 +495,7 @@ with `mh-scan-msg-format-string'."
         (width 0))
     (with-current-buffer tmp-buffer
       (erase-buffer)
-      (apply 'call-process
+      (apply #'call-process
              (expand-file-name mh-scan-prog mh-progs) nil '(t nil) nil
              (list folder "last" "-format" "%(msg)"))
       (goto-char (point-min))

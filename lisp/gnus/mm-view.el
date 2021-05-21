@@ -1,6 +1,6 @@
-;;; mm-view.el --- functions for viewing MIME objects
+;;; mm-view.el --- functions for viewing MIME objects  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1998-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2021 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; This file is part of GNU Emacs.
@@ -22,7 +22,7 @@
 
 ;;; Code:
 
-(eval-when-compile (require 'cl-lib))
+(require 'cl-lib)
 (require 'mail-parse)
 (require 'mailcap)
 (require 'mm-bodies)
@@ -59,14 +59,20 @@
   "The attributes of renderer types for text/html.")
 
 (defcustom mm-fill-flowed t
-  "If non-nil a format=flowed article will be displayed flowed."
+  "If non-nil, format=flowed articles will be displayed flowed."
   :type 'boolean
   :version "22.1"
   :group 'mime-display)
 
+;; Not a defcustom, since it's usually overridden by the callers of
+;; the mm functions.
+(defvar mm-inline-font-lock t
+  "If non-nil, do font locking of inline media types that support it.")
+
 (defcustom mm-inline-large-images-proportion 0.9
-  "Maximum proportion of large image resized when
-`mm-inline-large-images' is set to resize."
+  "Maximum proportion large images can occupy in the buffer.
+This is only used if `mm-inline-large-images' is set to
+`resize'."
   :type 'float
   :version "24.1"
   :group 'mime-display)
@@ -98,11 +104,10 @@
     (insert "\n")
     (mm-handle-set-undisplayer
      handle
-     `(lambda ()
-	(let ((b ,b)
-	      (inhibit-read-only t))
-	  (remove-images b b)
-	  (delete-region b (1+ b)))))))
+     (lambda ()
+       (let ((inhibit-read-only t))
+	 (remove-images b b)
+	 (delete-region b (1+ b)))))))
 
 (defvar mm-w3m-setup nil
   "Whether gnus-article-mode has been setup to use emacs-w3m.")
@@ -131,7 +136,7 @@
 		 (equal "multipart" (mm-handle-media-supertype elem)))
 	(mm-w3m-cid-retrieve-1 url elem)))))
 
-(defun mm-w3m-cid-retrieve (url &rest args)
+(defun mm-w3m-cid-retrieve (url &rest _args)
   "Insert a content pointed by URL if it has the cid: scheme."
   (when (string-match "\\`cid:" url)
     (or (catch 'found-handle
@@ -142,6 +147,9 @@
 	(prog1
 	    nil
 	  (message "Failed to find \"Content-ID: %s\"" url)))))
+
+(defvar w3m-force-redisplay)
+(defvar w3m-safe-url-regexp)
 
 (defun mm-inline-text-html-render-with-w3m (handle)
   "Render a text/html part using emacs-w3m."
@@ -193,10 +201,11 @@
 			       'keymap w3m-minor-mode-map)))
 	(mm-handle-set-undisplayer
 	 handle
-	 `(lambda ()
-	    (let ((inhibit-read-only t))
-	      (delete-region ,(point-min-marker)
-			     ,(point-max-marker)))))))))
+	 (let ((beg (point-min-marker))
+	       (end (point-max-marker)))
+	   (lambda ()
+	     (let ((inhibit-read-only t))
+	       (delete-region beg end)))))))))
 
 (defcustom mm-w3m-standalone-supports-m17n-p 'undecided
   "T means the w3m command supports the m17n feature."
@@ -268,13 +277,13 @@
       (write-region (point-min) (point-max) file nil 'silent))
     (delete-region (point-min) (point-max))
     (unwind-protect
-	(apply 'call-process cmd nil t nil (mapcar 'eval args))
+	(apply #'call-process cmd nil t nil (mapcar (lambda (e) (eval e t)) args))
       (delete-file file))
     (and post-func (funcall post-func))))
 
 (defun mm-inline-wash-with-stdin (post-func cmd &rest args)
   (let ((coding-system-for-write 'binary))
-    (apply 'call-process-region (point-min) (point-max)
+    (apply #'call-process-region (point-min) (point-max)
 	   cmd t t nil args))
   (and post-func (funcall post-func)))
 
@@ -284,7 +293,7 @@
      handle
      (mm-with-unibyte-buffer
        (insert source)
-       (apply 'mm-inline-wash-with-file post-func cmd args)
+       (apply #'mm-inline-wash-with-file post-func cmd args)
        (buffer-string)))))
 
 (defun mm-inline-render-with-stdin (handle post-func cmd &rest args)
@@ -293,7 +302,7 @@
      handle
      (mm-with-unibyte-buffer
        (insert source)
-       (apply 'mm-inline-wash-with-stdin post-func cmd args)
+       (apply #'mm-inline-wash-with-stdin post-func cmd args)
        (buffer-string)))))
 
 (defun mm-inline-render-with-function (handle func &rest args)
@@ -311,7 +320,7 @@
 
 (defun mm-inline-text-html (handle)
   (if (stringp (car handle))
-      (mapcar 'mm-inline-text-html (cdr handle))
+      (mapcar #'mm-inline-text-html (cdr handle))
     (let* ((func mm-text-html-renderer)
 	   (entry (assq func mm-text-html-renderer-alist))
 	   (inhibit-read-only t))
@@ -359,8 +368,8 @@
       (save-restriction
 	(narrow-to-region b (point))
 	(goto-char b)
-	(fill-flowed nil (equal (cdr (assoc 'delsp (mm-handle-type handle)))
-				"yes"))
+	(fill-flowed nil (cl-equalp (cdr (assoc 'delsp (mm-handle-type handle)))
+				    "yes"))
 	(goto-char (point-max))))
     (save-restriction
       (narrow-to-region b (point))
@@ -372,10 +381,11 @@
        handle
        (if (= (point-min) (point-max))
 	   #'ignore
-	 `(lambda ()
-	    (let ((inhibit-read-only t))
-	      (delete-region ,(copy-marker (point-min) t)
-			     ,(point-max-marker)))))))))
+	 (let ((beg (copy-marker (point-min) t))
+	       (end (point-max-marker)))
+	   (lambda ()
+	     (let ((inhibit-read-only t))
+	       (delete-region beg end)))))))))
 
 (defun mm-insert-inline (handle text)
   "Insert TEXT inline from HANDLE."
@@ -385,12 +395,13 @@
       (insert "\n"))
     (mm-handle-set-undisplayer
      handle
-     `(lambda ()
-	(let ((inhibit-read-only t))
-	  (delete-region ,(copy-marker b t)
-			 ,(point-marker)))))))
+     (let ((beg (copy-marker b t))
+           (end (point-marker)))
+       (lambda ()
+	 (let ((inhibit-read-only t))
+	   (delete-region beg end)))))))
 
-(defun mm-inline-audio (handle)
+(defun mm-inline-audio (_handle)
   (message "Not implemented"))
 
 (defun mm-view-message ()
@@ -406,6 +417,10 @@
 	    (mm-merge-handles gnus-article-mime-handles handles))))
   (fundamental-mode)
   (goto-char (point-min)))
+
+(defvar gnus-original-article-buffer)
+(defvar gnus-article-prepare-hook)
+(defvar gnus-displaying-mime)
 
 (defun mm-inline-message (handle)
   (let ((b (point))
@@ -444,9 +459,11 @@
 		(mm-merge-handles gnus-article-mime-handles handles)))
 	(mm-handle-set-undisplayer
 	 handle
-	 `(lambda ()
-	    (let ((inhibit-read-only t))
-	      (delete-region ,(point-min-marker) ,(point-max-marker)))))))))
+	 (let ((beg (point-min-marker))
+	       (end (point-max-marker)))
+	   (lambda ()
+	     (let ((inhibit-read-only t))
+	       (delete-region beg end)))))))))
 
 ;; Shut up byte-compiler.
 (defvar font-lock-mode-hook)
@@ -472,17 +489,15 @@ If MODE is not set, try to find mode automatically."
 		       (buffer-string)))
 		    (coding-system
 		     (decode-coding-string text coding-system))
-		    (charset
-		     (mm-decode-string text charset))
-		    (t
-		     text)))
+                    (t
+                     (mm-decode-string text (or charset 'undecided)))))
       (let ((font-lock-verbose nil)     ; font-lock is a bit too verbose.
 	    (enable-local-variables nil))
         ;; We used to set font-lock-mode-hook to nil to avoid enabling
         ;; support modes, but now that we use font-lock-ensure, support modes
         ;; aren't a problem any more.  So we could probably get rid of this
         ;; setting now, but it seems harmless and potentially still useful.
-	(set (make-local-variable 'font-lock-mode-hook) nil)
+	(setq-local font-lock-mode-hook nil)
         (setq buffer-file-name (mm-handle-filename handle))
 	(with-demoted-errors
 	    (if mode
@@ -498,10 +513,13 @@ If MODE is not set, try to find mode automatically."
 	    (let ((auto-mode-alist
 		   (delq (rassq 'doc-view-mode-maybe auto-mode-alist)
 			 (copy-sequence auto-mode-alist))))
-	      (set-auto-mode)
+	      ;; Don't run hooks that might assume buffer-file-name
+	      ;; really associates buffer with a file (bug#39190).
+	      (delay-mode-hooks (set-auto-mode))
 	      (setq mode major-mode)))
 	  ;; Do not fontify if the guess mode is fundamental.
-	  (unless (eq major-mode 'fundamental-mode)
+	  (when (and (not (eq major-mode 'fundamental-mode))
+		     mm-inline-font-lock)
 	    (font-lock-ensure))))
       (setq text (buffer-string))
       (when (eq mode 'diff-mode)
@@ -539,7 +557,7 @@ If MODE is not set, try to find mode automatically."
   (mm-display-inline-fontify handle 'shell-script-mode))
 
 (defun mm-display-javascript-inline (handle)
-  "Show JavsScript code from HANDLE inline."
+  "Show JavaScript code from HANDLE inline."
   (mm-display-inline-fontify handle 'javascript-mode))
 
 ;;      id-signedData OBJECT IDENTIFIER ::= { iso(1) member-body(2)
@@ -584,24 +602,31 @@ If MODE is not set, try to find mode automatically."
 
 (defun mm-view-pkcs7-verify (handle)
   (let ((verified nil))
-    (with-temp-buffer
-      (insert "MIME-Version: 1.0\n")
-      (mm-insert-headers "application/pkcs7-mime" "base64" "smime.p7m")
-      (insert-buffer-substring (mm-handle-buffer handle))
-      (setq verified (smime-verify-region (point-min) (point-max))))
-    (goto-char (point-min))
-    (mm-insert-part handle)
-    (if (search-forward "Content-Type: " nil t)
-	(delete-region (point-min) (match-beginning 0)))
-    (goto-char (point-max))
-    (if (re-search-backward "--\r?\n?" nil t)
-	(delete-region (match-end 0) (point-max)))
-    (unless verified
-      (insert-buffer-substring smime-details-buffer)))
-  (goto-char (point-min))
-  (while (search-forward "\r\n" nil t)
-    (replace-match "\n"))
-  t)
+    (if (eq mml-smime-use 'epg)
+	;; Use EPG/gpgsm
+	(insert
+	 (with-temp-buffer
+	   (insert-buffer-substring (mm-handle-buffer handle))
+	   (goto-char (point-min))
+	   (let ((part (base64-decode-string (buffer-string)))
+		 (context (epg-make-context 'CMS)))
+	     (prog1
+		 (epg-verify-string context part)
+	       (let ((result (car (epg-context-result-for context 'verify))))
+		 (mm-sec-status
+		  'gnus-info (epg-signature-status result)
+		  'gnus-details
+		  (format "%s:%s" (epg-signature-validity result)
+			  (epg-signature-key-id result))))))))
+      (with-temp-buffer
+	(insert "MIME-Version: 1.0\n")
+	(mm-insert-headers "application/pkcs7-mime" "base64" "smime.p7m")
+	(insert-buffer-substring (mm-handle-buffer handle))
+	(setq verified (smime-verify-region (point-min) (point-max))))
+      (if verified
+	  (insert verified)
+	(insert-buffer-substring smime-details-buffer)))
+    t))
 
 (autoload 'epg-decrypt-string "epg")
 

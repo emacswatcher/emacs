@@ -1,4 +1,4 @@
-;;; tv-util.el --- support for Tai Viet			-*- coding: utf-8 -*-
+;;; tv-util.el --- support for Tai Viet		-*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -128,7 +128,7 @@
 
 
 ;;;###autoload
-(defun tai-viet-composition-function (from to font-object string)
+(defun tai-viet-composition-function (from _to _font-object string _direction)
   (if string
       (if (string-match tai-viet-re string from)
 	  (tai-viet-compose-string from (match-end 0) string))
@@ -136,5 +136,6 @@
     (if (looking-at tai-viet-re)
 	(tai-viet-compose-region from (match-end 0)))))
 
-;;
 (provide 'tai-viet-util)
+
+;;; tv-util.el ends here

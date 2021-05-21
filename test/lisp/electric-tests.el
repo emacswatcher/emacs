@@ -1,22 +1,24 @@
-;;; electric-tests.el --- tests for electric.el
+;;; electric-tests.el --- tests for electric.el  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2013-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
 ;; Author: João Távora <joaotavora@gmail.com>
 ;; Keywords:
 
-;; This program is free software; you can redistribute it and/or modify
+;; This file is part of GNU Emacs.
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
 ;; (at your option) any later version.
 
-;; This program is distributed in the hope that it will be useful,
+;; GNU Emacs is distributed in the hope that it will be useful,
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;; GNU General Public License for more details.
 
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -45,10 +47,11 @@
 
 (defmacro save-electric-modes (&rest body)
   (declare (indent defun) (debug t))
-  `(call-with-saved-electric-modes #'(lambda () ,@body)))
+  `(call-with-saved-electric-modes (lambda () ,@body)))
 
 (defun electric-pair-test-for (fixture where char expected-string
-                                       expected-point mode bindings fixture-fn)
+                                       expected-point mode bindings
+                                       fixture-fn &optional doc-string)
   (with-temp-buffer
     (funcall mode)
     (insert fixture)
@@ -61,6 +64,14 @@
             (mapcar #'car bindings)
             (mapcar #'cdr bindings)
           (call-interactively (key-binding `[,last-command-event])))))
+    (when
+        (and doc-string
+             (not
+              (and
+               (equal (buffer-substring-no-properties (point-min) (point-max))
+                      expected-string)
+               (equal (point) expected-point))))
+      (message "\n%s\n" doc-string))
     (should (equal (buffer-substring-no-properties (point-min) (point-max))
                    expected-string))
     (should (equal (point)
@@ -107,14 +118,9 @@
            (fixture (format "%s%s%s" prefix fixture suffix))
            (expected-string (format "%s%s%s" prefix expected-string suffix))
            (expected-point (+ (length prefix) expected-point))
-           (pos (+ (length prefix) pos)))
-      `(ert-deftest ,(intern (format "electric-pair-%s-at-point-%s-in-%s%s"
-                                     name
-                                     (1+ pos)
-                                     mode
-                                     extra-desc))
-           ()
-         ,(format "Electricity test in a `%s' buffer.\n
+           (pos (+ (length prefix) pos))
+           (doc-string
+            (format "Electricity test in a `%s' buffer.\n
 Start with point at %d in a %d-char-long buffer
 like this one:
 
@@ -133,13 +139,22 @@ The buffer's contents should %s:
                   (length fixture)
                   fixture
                   (if fixture-fn (format "\nNow call this:\n\n%s"
-                                         (pp-to-string fixture-fn)) "")
+                                         (pp-to-string fixture-fn))
+                    "")
                   (if bindings (format "\nEnsure the following bindings:\n\n%s"
-                                       (pp-to-string bindings)) "")
+                                       (pp-to-string bindings))
+                    "")
                   char
                   (if (string= fixture expected-string) "stay" "become")
                   (replace-regexp-in-string "\n" "\\\\n" expected-string)
-                  expected-point)
+                  expected-point)))
+      `(ert-deftest ,(intern (format "electric-pair-%s-at-point-%s-in-%s%s"
+                                     name
+                                     (1+ pos)
+                                     mode
+                                     extra-desc))
+           ()
+         ,doc-string
          (electric-pair-test-for ,fixture
                                  ,(1+ pos)
                                  ,char
@@ -147,7 +162,8 @@ The buffer's contents should %s:
                                  ,expected-point
                                  ',mode
                                  ,bindings
-                                 ,fixture-fn)))))
+                                 ,fixture-fn
+                                 ,doc-string)))))
 
 (cl-defmacro define-electric-pair-test
     (name fixture
@@ -161,8 +177,11 @@ The buffer's contents should %s:
           (test-in-comments t)
           (test-in-strings t)
           (test-in-code t)
-          (fixture-fn #'(lambda ()
-                          (electric-pair-mode 1))))
+          ;; The semantics of CL's defmacro "default values" is subtle:
+          ;; contrary to the actual arguments, these are evaluated (and
+          ;; are expected to return the "default form").
+          ;; `fixture-fn' contains a form whose evaluation returns a function.
+          (fixture-fn '#'electric-pair-mode))
   `(progn
      ,@(cl-loop
         for mode in (eval modes) ;FIXME: avoid `eval'
@@ -340,7 +359,7 @@ baz\"\""
 #    \"
 #
 baz\"\""
-  :fixture-fn #'(lambda () (goto-char (point-min)) (search-forward "bar")))
+  :fixture-fn (lambda () (goto-char (point-min)) (search-forward "bar")))
 
 (define-electric-pair-test inhibit-in-mismatched-string-inside-c-comments
   "foo\"\"/*
@@ -359,7 +378,7 @@ baz\"\""
     \"   \"
     \"
 */baz\"\""
-  :fixture-fn #'(lambda () (goto-char (point-min)) (search-forward "bar")))
+  :fixture-fn (lambda () (goto-char (point-min)) (search-forward "bar")))
 
 
 ;;; More quotes, but now don't bind `electric-pair-text-syntax-table'
@@ -397,16 +416,6 @@ baz\"\""
    "\" ( \n		\n  )  \"" 4 41 "\" ()  \"" 5 'c++-mode
    '((electric-pair-skip-whitespace . chomp))
    (lambda () (electric-pair-mode 1))))
-;; A test failure introduced by:
-;;
-;;    bb591f139f: Enhance CC Mode's fontification, etc., of unterminated strings.
-;;
-;; Hopefully CC mode will sort this out eventually.  See
-;; https://lists.gnu.org/archive/html/emacs-devel/2018-06/msg00535.html
-(setf
- (ert-test-expected-result-type
-  (ert-get-test 'electric-pair-whitespace-chomping-2-at-point-4-in-c++-mode-in-strings))
- :failed)
 
 (define-electric-pair-test whitespace-chomping-dont-cross-comments
   " ( \n\t\t\n  )  " "--)------" :expected-string " () \n\t\t\n  )  "
@@ -511,8 +520,8 @@ baz\"\""
 (define-electric-pair-test js-mode-braces
   "" "{" :expected-string "{}" :expected-point 2
   :modes '(js-mode)
-  :fixture-fn #'(lambda ()
-                  (electric-pair-mode 1)))
+  :fixture-fn (lambda ()
+                (electric-pair-mode 1)))
 
 
 (define-electric-pair-test js-mode-braces-with-layout
@@ -520,29 +529,29 @@ baz\"\""
   :modes '(js-mode)
   :test-in-comments nil
   :test-in-strings nil
-  :fixture-fn #'(lambda ()
-                  (electric-layout-mode 1)
-                  (electric-pair-mode 1)))
+  :fixture-fn (lambda ()
+                (electric-layout-mode 1)
+                (electric-pair-mode 1)))
 
 (define-electric-pair-test js-mode-braces-with-layout-and-indent
   "" "{" :expected-string "{\n    \n}" :expected-point 7
   :modes '(js-mode)
   :test-in-comments nil
   :test-in-strings nil
-  :fixture-fn #'(lambda ()
-                  (electric-pair-mode 1)
-                  (electric-indent-mode 1)
-                  (electric-layout-mode 1)))
+  :fixture-fn (lambda ()
+                (electric-pair-mode 1)
+                (electric-indent-mode 1)
+                (electric-layout-mode 1)))
 
 (define-electric-pair-test js-mode-braces-with-layout-and-indent
   "" "{" :expected-string "{\n    \n}" :expected-point 7
   :modes '(js-mode)
   :test-in-comments nil
   :test-in-strings nil
-  :fixture-fn #'(lambda ()
-                  (electric-pair-mode 1)
-                  (electric-indent-mode 1)
-                  (electric-layout-mode 1)))
+  :fixture-fn (lambda ()
+                (electric-pair-mode 1)
+                (electric-indent-mode 1)
+                (electric-layout-mode 1)))
 
 
 ;;; Backspacing
@@ -555,6 +564,24 @@ baz\"\""
       (goto-char 2)
       (electric-pair-delete-pair 1)
       (should (equal "" (buffer-string))))))
+
+
+;;; Undoing
+(ert-deftest electric-pair-undo-unrelated-state ()
+  "Make sure `electric-pair-mode' does not confuse `undo' (bug#39680)."
+  (with-temp-buffer
+    (buffer-enable-undo)
+    (electric-pair-local-mode)
+    (let ((last-command-event ?\())
+      (ert-simulate-command '(self-insert-command 1)))
+    (undo-boundary)
+    (let ((last-command-event ?a))
+      (ert-simulate-command '(self-insert-command 1)))
+    (undo-boundary)
+    (ert-simulate-command '(undo))
+    (let ((last-command-event ?\())
+      (ert-simulate-command '(self-insert-command 1)))
+    (should (string= (buffer-string) "(())"))))
 
 
 ;;; Electric newlines between pairs
@@ -579,55 +606,55 @@ baz\"\""
 ;;;
 (define-electric-pair-test autowrapping-1
   "foo" "(" :expected-string "(foo)" :expected-point 2
-  :fixture-fn #'(lambda ()
-                  (electric-pair-mode 1)
-                  (mark-sexp 1)))
+  :fixture-fn (lambda ()
+                (electric-pair-mode 1)
+                (mark-sexp 1)))
 
 (define-electric-pair-test autowrapping-2
   "foo" ")" :expected-string "(foo)" :expected-point 6
-  :fixture-fn #'(lambda ()
-                  (electric-pair-mode 1)
-                  (mark-sexp 1)))
+  :fixture-fn (lambda ()
+                (electric-pair-mode 1)
+                (mark-sexp 1)))
 
 (define-electric-pair-test autowrapping-3
   "foo" ")" :expected-string "(foo)" :expected-point 6
-  :fixture-fn #'(lambda ()
-                  (electric-pair-mode 1)
-                  (goto-char (point-max))
-                  (skip-chars-backward "\"")
-                  (mark-sexp -1)))
+  :fixture-fn (lambda ()
+                (electric-pair-mode 1)
+                (goto-char (point-max))
+                (skip-chars-backward "\"")
+                (mark-sexp -1)))
 
 (define-electric-pair-test autowrapping-4
   "foo" "(" :expected-string "(foo)" :expected-point 2
-  :fixture-fn #'(lambda ()
-                  (electric-pair-mode 1)
-                  (goto-char (point-max))
-                  (skip-chars-backward "\"")
-                  (mark-sexp -1)))
+  :fixture-fn (lambda ()
+                (electric-pair-mode 1)
+                (goto-char (point-max))
+                (skip-chars-backward "\"")
+                (mark-sexp -1)))
 
 (define-electric-pair-test autowrapping-5
   "foo" "\"" :expected-string "\"foo\"" :expected-point 2
-  :fixture-fn #'(lambda ()
-                  (electric-pair-mode 1)
-                  (mark-sexp 1)))
+  :fixture-fn (lambda ()
+                (electric-pair-mode 1)
+                (mark-sexp 1)))
 
 (define-electric-pair-test autowrapping-6
   "foo" "\"" :expected-string "\"foo\"" :expected-point 6
-  :fixture-fn #'(lambda ()
-                  (electric-pair-mode 1)
-                  (goto-char (point-max))
-                  (skip-chars-backward "\"")
-                  (mark-sexp -1)))
+  :fixture-fn (lambda ()
+                (electric-pair-mode 1)
+                (goto-char (point-max))
+                (skip-chars-backward "\"")
+                (mark-sexp -1)))
 
 (define-electric-pair-test autowrapping-7
   "foo" "\"" :expected-string "``foo''" :expected-point 8
   :modes '(tex-mode)
   :test-in-comments nil
-  :fixture-fn #'(lambda ()
-                  (electric-pair-mode 1)
-                  (goto-char (point-max))
-                  (skip-chars-backward "\"")
-                  (mark-sexp -1)))
+  :fixture-fn (lambda ()
+                (electric-pair-mode 1)
+                (goto-char (point-max))
+                (skip-chars-backward "\"")
+                (mark-sexp -1)))
 
 
 ;;; Electric quotes
@@ -876,14 +903,25 @@ baz\"\""
       (call-interactively (key-binding `[,last-command-event])))
     (should (equal (buffer-string) "int main () {\n  \n}"))))
 
-(define-derived-mode plainer-c-mode c-mode "pC"
-  "A plainer/saner C-mode with no internal electric machinery."
-  (c-toggle-electric-state -1)
-  (setq-local electric-indent-local-mode-hook nil)
-  (setq-local electric-indent-mode-hook nil)
-  (electric-indent-local-mode 1)
-  (dolist (key '(?\" ?\' ?\{ ?\} ?\( ?\) ?\[ ?\]))
-    (local-set-key (vector key) 'self-insert-command)))
+(ert-deftest electric-layout-control-reindentation ()
+  "Same as `emacs-lisp-int-main-kernel-style', but checking
+Bug#35254."
+  (ert-with-test-buffer ()
+    (plainer-c-mode)
+    (electric-layout-local-mode 1)
+    (electric-pair-local-mode 1)
+    (electric-indent-local-mode 1)
+    (setq-local electric-layout-rules
+                '((?\{ . (after))
+                  (?\} . (before))))
+    (insert "int main () ")
+    (let ((last-command-event ?\{))
+      (call-interactively (key-binding `[,last-command-event])))
+    (should (equal (buffer-string) "int main () {\n  \n}"))
+    ;; insert an additional newline and check indentation and
+    ;; reindentation
+    (call-interactively 'newline)
+    (should (equal (buffer-string) "int main () {\n\n  \n}"))))
 
 (ert-deftest electric-modes-int-main-allman-style ()
   (ert-with-test-buffer ()
@@ -906,7 +944,7 @@ baz\"\""
     (electric-pair-local-mode 1)
     (insert-before-markers "int main () {}")
     (backward-char 1)
-    (let ((last-command-event ?))
+    (let ((last-command-event ?\r))
       (call-interactively (key-binding `[,last-command-event])))
     (should (equal (buffer-string) "int main () {\n  \n}"))))
 
@@ -927,7 +965,7 @@ baz\"\""
                        '(after-stay))))))
     (insert "int main () {}")
     (backward-char 1)
-    (let ((last-command-event ?))
+    (let ((last-command-event ?\r))
       (call-interactively (key-binding `[,last-command-event])))
     (should (equal (buffer-string) "int main () {\n  \n}"))))
 
@@ -948,7 +986,7 @@ baz\"\""
                        '(after-stay)))))
     (insert "int main () {}")
     (backward-char 1)
-    (let ((last-command-event ?))
+    (let ((last-command-event ?\r))
       (call-interactively (key-binding `[,last-command-event])))
     (should (equal (buffer-string) "int main () {\n  \n}"))))
 

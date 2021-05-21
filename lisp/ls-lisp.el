@@ -1,6 +1,6 @@
 ;;; ls-lisp.el --- emulate insert-directory completely in Emacs Lisp  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1992, 1994, 2000-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1992, 1994, 2000-2021 Free Software Foundation, Inc.
 
 ;; Author: Sebastian Kremer <sk@thp.uni-koeln.de>
 ;; Modified by: Francis J. Wright <F.J.Wright@maths.qmw.ac.uk>
@@ -28,7 +28,7 @@
 ;; OVERVIEW ==========================================================
 
 ;; This file advises the function `insert-directory' to implement it
-;; directly from Emacs lisp, without running ls in a subprocess.
+;; directly from Emacs Lisp, without running ls in a subprocess.
 ;; This is useful if you don't have ls installed (ie, on MS Windows).
 
 ;; This function can use regexps instead of shell wildcards.  If you
@@ -420,14 +420,7 @@ not contain `d', so that a full listing is expected."
 		  attr (cdr elt)
 		  file-size (file-attribute-size attr))
 	    (and attr
-		 (setq sum (+ file-size
-			      ;; Even if neither SUM nor file's size
-			      ;; overflow, their sum could.
-			      (if (or (< sum (- 134217727 file-size))
-				      (floatp sum)
-				      (floatp file-size))
-				  sum
-				(float sum))))
+		 (setq sum (+ file-size sum))
 		 (insert (ls-lisp-format short attr file-size
 					 switches time-index))))
 	  ;; Insert total size of all files:
@@ -442,9 +435,9 @@ not contain `d', so that a full listing is expected."
 	;; text.  But if the listing is empty, as e.g. in empty
 	;; directories with -a removed from switches, point will be
 	;; before the inserted text, and dired-insert-directory will
-	;; not indent the listing correctly.  Going to the end of the
-	;; buffer fixes that.
-	(unless files (goto-char (point-max)))
+	;; not indent the listing correctly.  Getting past the
+	;; inserted text solves this.
+	(unless (cdr total-line) (forward-line 2))
 	(if (memq ?R switches)
 	    ;; List the contents of all directories recursively.
 	    ;; cadr of each element of `file-alist' is t for
@@ -488,6 +481,8 @@ not contain `d', so that a full listing is expected."
 
 (defun ls-lisp--dired (orig-fun dir-or-list &optional switches)
   (interactive (dired-read-dir-and-switches ""))
+  (unless dir-or-list
+    (setq dir-or-list default-directory))
   (if (consp dir-or-list)
       (funcall orig-fun dir-or-list switches)
     (let ((dir-wildcard (insert-directory-wildcard-in-dir-p
@@ -522,7 +517,8 @@ If the \"..\" directory entry has nil attributes, the attributes
 are copied from the \".\" entry, if they are non-nil.  Otherwise,
 the offending element is removed from the list, as are any
 elements for other directory entries with nil attributes."
-  (if (and (null (cdr (assoc ".." file-alist)))
+  (if (and (consp (assoc ".." file-alist))
+           (null (cdr (assoc ".." file-alist)))
 	   (cdr (assoc "." file-alist)))
       (setcdr (assoc ".." file-alist) (cdr (assoc "." file-alist))))
   (rassq-delete-all nil file-alist))
@@ -840,6 +836,9 @@ Return nil if no time switch found."
 	((memq ?t switches) 5)		; last modtime
 	((memq ?u switches) 4)))	; last access
 
+(defvar ls-lisp--time-locale nil
+  "Locale to be used for formatting file times.")
+
 (defun ls-lisp-format-time (file-attr time-index)
   "Format time for file with attributes FILE-ATTR according to TIME-INDEX.
 Use the same method as ls to decide whether to show time-of-day or year,
@@ -855,11 +854,13 @@ All ls time options, namely c, t and u, are handled."
     (condition-case nil
 	;; Use traditional time format in the C or POSIX locale,
 	;; ISO-style time format otherwise, so columns line up.
-	(let ((locale system-time-locale))
+	(let ((locale (or system-time-locale ls-lisp--time-locale)))
 	  (if (not locale)
 	      (let ((vars '("LC_ALL" "LC_TIME" "LANG")))
 		(while (and vars (not (setq locale (getenv (car vars)))))
-		  (setq vars (cdr vars)))))
+		  (setq vars (cdr vars)))
+                ;; Cache the locale for next calls.
+                (setq ls-lisp--time-locale (or locale "C"))))
 	  (if (member locale '("C" "POSIX"))
 	      (setq locale nil))
 	  (format-time-string

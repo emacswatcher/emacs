@@ -1,23 +1,24 @@
 ;;; nadvice.el --- Light-weight advice primitives for Elisp functions  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2012-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2021 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords: extensions, lisp, tools
-;; Package: emacs
 
-;; This program is free software; you can redistribute it and/or modify
+;; This file is part of GNU Emacs.
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
 ;; (at your option) any later version.
 
-;; This program is distributed in the hope that it will be useful,
+;; GNU Emacs is distributed in the hope that it will be useful,
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;; GNU General Public License for more details.
 
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -88,8 +89,9 @@ Each element has the form (WHERE BYTECODE STACK) where:
   "Build the raw docstring for FUNCTION, presumably advised."
   (let* ((flist (indirect-function function))
          (docfun nil)
+         (macrop (eq 'macro (car-safe flist)))
          (docstring nil))
-    (if (eq 'macro (car-safe flist)) (setq flist (cdr flist)))
+    (if macrop (setq flist (cdr flist)))
     (while (advice--p flist)
       (let ((doc (aref flist 4))
             (where (advice--where flist)))
@@ -101,10 +103,11 @@ Each element has the form (WHERE BYTECODE STACK) where:
         (setq docstring
               (concat
                docstring
-               (propertize (format "%s advice: " where)
-                           'face 'warning)
+               (format "This %s has %s advice: "
+                       (if macrop "macro" "function")
+                       where)
                (let ((fun (advice--car flist)))
-                 (if (symbolp fun) (format-message "`%S'" fun)
+                 (if (symbolp fun) (format-message "`%S'." fun)
                    (let* ((name (cdr (assq 'name (advice--props flist))))
                           (doc (documentation fun t))
                           (usage (help-split-fundoc doc function)))
@@ -313,8 +316,26 @@ is also interactive.  There are 3 cases:
   `(advice--add-function ,where (gv-ref ,(advice--normalize-place place))
                          ,function ,props))
 
+(declare-function comp-subr-trampoline-install "comp")
+
 ;;;###autoload
 (defun advice--add-function (where ref function props)
+  (when (and (featurep 'native-compile)
+             (subr-primitive-p (gv-deref ref)))
+    (let ((subr-name (intern (subr-name (gv-deref ref)))))
+      ;; Requiring the native compiler to advice `macroexpand' cause a
+      ;; circular dependency in eager macro expansion.  uniquify is
+      ;; advising `rename-buffer' while being loaded in loadup.el.
+      ;; This would require the whole native compiler machinery but we
+      ;; don't want to include it in the dump.  Because these two
+      ;; functions are already handled in
+      ;; `native-comp-never-optimize-functions' we hack the problem
+      ;; this way for now :/
+      (unless (memq subr-name '(macroexpand rename-buffer))
+        ;; Must require explicitly as during bootstrap we have no
+        ;; autoloads.
+        (require 'comp)
+        (comp-subr-trampoline-install subr-name))))
   (let* ((name (cdr (assq 'name props)))
          (a (advice--member-p (or name function) (if name t) (gv-deref ref))))
     (when a
@@ -482,7 +503,7 @@ arguments.  Note if NAME is nil the advice is anonymous;
 otherwise it is named `SYMBOL@NAME'.
 
 \(fn SYMBOL (WHERE LAMBDA-LIST &optional NAME DEPTH) &rest BODY)"
-  (declare (indent 2) (doc-string 3) (debug (sexp sexp body)))
+  (declare (indent 2) (doc-string 3) (debug (sexp sexp def-body)))
   (or (listp args) (signal 'wrong-type-argument (list 'listp args)))
   (or (<= 2 (length args) 4)
       (signal 'wrong-number-of-arguments (list 2 4 (length args))))

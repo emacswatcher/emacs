@@ -1,6 +1,6 @@
 ;;; cl-lib.el --- Common Lisp extensions for Emacs  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993, 2001-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1993, 2001-2021 Free Software Foundation, Inc.
 
 ;; Author: Dave Gillespie <daveg@synaptics.com>
 ;; Version: 1.0
@@ -110,6 +110,7 @@ a future Emacs interpreter will be able to use it.")
 ;; These macros are defined here so that they
 ;; can safely be used in init files.
 
+;;;###autoload
 (defmacro cl-incf (place &optional x)
   "Increment PLACE by X (1 by default).
 PLACE may be a symbol, or any generalized variable allowed by `setf'.
@@ -129,14 +130,17 @@ The return value is the decremented value of PLACE."
     (list 'cl-callf '- place (or x 1))))
 
 (defmacro cl-pushnew (x place &rest keys)
-  "(cl-pushnew X PLACE): insert X at the head of the list if not already there.
-Like (push X PLACE), except that the list is unmodified if X is `eql' to
-an element already on the list.
+  "Add X to the list stored in PLACE unless X is already in the list.
+PLACE is a generalized variable that stores a list.
+
+Like (push X PLACE), except that PLACE is unmodified if X is `eql'
+to an element already in the list stored in PLACE.
+
 \nKeywords supported:  :test :test-not :key
 \n(fn X PLACE [KEYWORD VALUE]...)"
   (declare (debug
             (form place &rest
-                  &or [[&or ":test" ":test-not" ":key"] function-form]
+                  &or [[&or ":test" ":test-not" ":key"] form]
                   [keywordp form])))
   (if (symbolp place)
       (if (null keys)
@@ -189,12 +193,16 @@ that the containing function should return.
 
 \(fn &rest VALUES)")
 
-(cl--defalias 'cl-values-list #'identity
+(defun cl-values-list (list)
   "Return multiple values, Common Lisp style, taken from a list.
-LIST specifies the list of values
-that the containing function should return.
+LIST specifies the list of values that the containing function
+should return.
 
-\(fn LIST)")
+Note that Emacs Lisp doesn't really support multiple values, so
+all this function does is return LIST."
+  (unless (listp list)
+    (signal 'wrong-type-argument list))
+  list)
 
 (defsubst cl-multiple-value-list (expression)
   "Return a list of the multiple values produced by EXPRESSION.
@@ -224,13 +232,8 @@ one value.
 
 ;;; Declarations.
 
-(defvar cl--compiling-file nil)
-(defun cl--compiling-file ()
-  (or cl--compiling-file
-      (and (boundp 'byte-compile--outbuffer)
-           (bufferp (symbol-value 'byte-compile--outbuffer))
-	   (equal (buffer-name (symbol-value 'byte-compile--outbuffer))
-		  " *Compiler Output*"))))
+(define-obsolete-function-alias 'cl--compiling-file
+  #'macroexp-compiling-p "28.1")
 
 (defvar cl--proclaims-deferred nil)
 
@@ -245,7 +248,7 @@ one value.
 Puts `(cl-eval-when (compile load eval) ...)' around the declarations
 so that they are registered at compile-time as well as run-time."
   (let ((body (mapcar (lambda (x) `(cl-proclaim ',x)) specs)))
-    (if (cl--compiling-file) `(cl-eval-when (compile load eval) ,@body)
+    (if (macroexp-compiling-p) `(cl-eval-when (compile load eval) ,@body)
       `(progn ,@body))))           ; Avoid loading cl-macs.el for cl-eval-when.
 
 
@@ -291,7 +294,7 @@ If true return the decimal value of digit CHAR in RADIX."
 (defconst cl-most-positive-float nil
   "The largest value that a Lisp float can hold.
 If your system supports infinities, this is the largest finite value.
-For IEEE machines, this is approximately 1.79e+308.
+For Emacs, this equals 1.7976931348623157e+308.
 Call `cl-float-limits' to set this.")
 
 (defconst cl-most-negative-float nil
@@ -301,8 +304,8 @@ Call `cl-float-limits' to set this.")
 
 (defconst cl-least-positive-float nil
   "The smallest value greater than zero that a Lisp float can hold.
-For IEEE machines, it is about 4.94e-324 if denormals are supported,
-or 2.22e-308 if they are not.
+For Emacs, this equals 5e-324 if subnormal numbers are supported,
+`cl-least-positive-normalized-float' if they are not.
 Call `cl-float-limits' to set this.")
 
 (defconst cl-least-negative-float nil
@@ -312,10 +315,8 @@ Call `cl-float-limits' to set this.")
 
 (defconst cl-least-positive-normalized-float nil
   "The smallest normalized Lisp float greater than zero.
-This is the smallest value for which IEEE denormalization does not lose
-precision.  For IEEE machines, this value is about 2.22e-308.
-For machines that do not support the concept of denormalization
-and gradual underflow, this constant equals `cl-least-positive-float'.
+This is the smallest value that has full precision.
+For Emacs, this equals 2.2250738585072014e-308.
 Call `cl-float-limits' to set this.")
 
 (defconst cl-least-negative-normalized-float nil
@@ -326,12 +327,12 @@ Call `cl-float-limits' to set this.")
 (defconst cl-float-epsilon nil
   "The smallest positive float that adds to 1.0 to give a distinct value.
 Adding a number less than this to 1.0 returns 1.0 due to roundoff.
-For IEEE machines, epsilon is about 2.22e-16.
+For Emacs, this equals 2.220446049250313e-16.
 Call `cl-float-limits' to set this.")
 
 (defconst cl-float-negative-epsilon nil
   "The smallest positive float that subtracts from 1.0 to give a distinct value.
-For IEEE machines, it is about 1.11e-16.
+For Emacs, this equals 1.1102230246251565e-16.
 Call `cl-float-limits' to set this.")
 
 
@@ -613,8 +614,11 @@ If ALIST is non-nil, the new pairs are prepended to it."
       (macroexp-let2* nil ((start from) (end to))
         (funcall do `(substring ,getter ,start ,end)
                  (lambda (v)
-                   (funcall setter `(cl--set-substring
-                                     ,getter ,start ,end ,v))))))))
+                   (macroexp-let2 nil v v
+                     `(progn
+                        ,(funcall setter `(cl--set-substring
+                                           ,getter ,start ,end ,v))
+                        ,v))))))))
 
 ;;; Miscellaneous.
 
@@ -654,14 +658,11 @@ This can be needed when using code byte-compiled using the old
 macro-expansion of `cl-defstruct' that used vectors objects instead
 of record objects."
   :global t
+  :group 'tools
   (cond
    (cl-old-struct-compat-mode
     (advice-add 'type-of :around #'cl--old-struct-type-of))
    (t
     (advice-remove 'type-of #'cl--old-struct-type-of))))
-
-;; Local variables:
-;; byte-compile-dynamic: t
-;; End:
 
 ;;; cl-lib.el ends here

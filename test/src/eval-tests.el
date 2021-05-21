@@ -1,6 +1,6 @@
 ;;; eval-tests.el --- unit tests for src/eval.c      -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2016-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2021 Free Software Foundation, Inc.
 
 ;; Author: Philipp Stephani <phst@google.com>
 
@@ -27,6 +27,7 @@
 
 (require 'ert)
 (eval-when-compile (require 'cl-lib))
+(require 'subr-x)
 
 (ert-deftest eval-tests--bug24673 ()
   "Check that Bug#24673 has been fixed."
@@ -168,5 +169,61 @@ are found on the stack and therefore not garbage collected."
 (defun eval-tests-33014-redefine ()
   "Remove the Lisp reference to the byte-compiled object."
   (setf (symbol-function #'eval-tests-33014-func) nil))
+
+(defun eval-tests-19790-backquote-comma-dot-substitution ()
+  "Regression test for Bug#19790.
+Don't handle destructive splicing in backquote expressions (like
+in Common Lisp).  Instead, make sure substitution in backquote
+expressions works for identifiers starting with period."
+  (should (equal (let ((.x 'identity)) (eval `(,.x 'ok))) 'ok)))
+
+(ert-deftest eval-tests/backtrace-in-batch-mode ()
+  (let ((emacs (expand-file-name invocation-name invocation-directory)))
+    (skip-unless (file-executable-p emacs))
+    (with-temp-buffer
+      (let ((status (call-process emacs nil t nil
+                                  "--quick" "--batch"
+                                  (concat "--eval="
+                                          (prin1-to-string
+                                           '(progn
+                                              (defun foo () (error "Boo"))
+                                              (foo)))))))
+        (should (natnump status))
+        (should-not (eql status 0)))
+      (goto-char (point-min))
+      (ert-info ((concat "Process output:\n" (buffer-string)))
+        (search-forward "  foo()")
+        (search-forward "  normal-top-level()")))))
+
+(ert-deftest eval-tests/backtrace-in-batch-mode/inhibit ()
+  (let ((emacs (expand-file-name invocation-name invocation-directory)))
+    (skip-unless (file-executable-p emacs))
+    (with-temp-buffer
+      (let ((status (call-process
+                     emacs nil t nil
+                     "--quick" "--batch"
+                     (concat "--eval="
+                             (prin1-to-string
+                              '(progn
+                                 (defun foo () (error "Boo"))
+                                 (let ((backtrace-on-error-noninteractive nil))
+                                   (foo))))))))
+        (should (natnump status))
+        (should-not (eql status 0)))
+      (should (equal (string-trim (buffer-string)) "Boo")))))
+
+(ert-deftest eval-tests/backtrace-in-batch-mode/demoted-errors ()
+  (let ((emacs (expand-file-name invocation-name invocation-directory)))
+    (skip-unless (file-executable-p emacs))
+    (with-temp-buffer
+      (should (eql  0 (call-process emacs nil t nil
+                                    "--quick" "--batch"
+                                    (concat "--eval="
+                                            (prin1-to-string
+                                             '(with-demoted-errors "Error: %S"
+                                                (error "Boo")))))))
+      (goto-char (point-min))
+      (should (equal (string-trim (buffer-string))
+                     "Error: (error \"Boo\")")))))
 
 ;;; eval-tests.el ends here

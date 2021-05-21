@@ -1,6 +1,6 @@
 ;;; dired-x.el --- extra Dired functionality  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1993-1994, 1997, 2001-2019 Free Software Foundation,
+;; Copyright (C) 1993-1994, 1997, 2001-2021 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Sebastian Kremer <sk@thp.uni-koeln.de>
@@ -27,7 +27,7 @@
 ;;; Commentary:
 
 ;; This is based on Sebastian Kremer's excellent dired-x.el (Dired Extra),
-;; version 1.191, adapted for GNU Emacs.  See the `dired-x' info pages.
+;; version 1.191, adapted for GNU Emacs.  See the `dired-x' Info manual.
 
 ;; At load time dired-x.el will install itself and bind some dired keys.
 ;; Some dired.el and dired-aux.el functions have extra features if
@@ -35,7 +35,7 @@
 
 ;; User customization: M-x customize-group RET dired-x RET.
 
-;; *Please* see the `dired-x' info pages for more details.
+;; *Please* see the `dired-x' Info manual for more details.
 
 
 ;;; Code:
@@ -64,21 +64,8 @@ mbox format, and so cannot be distinguished in this way."
   :type 'boolean
   :group 'dired-keys)
 
-(defcustom dired-bind-jump t
-  "Non-nil means bind `dired-jump' to C-x C-j, otherwise do not.
-Setting this variable directly after dired-x is loaded has no effect -
-use \\[customize]."
-  :type 'boolean
-  :set (lambda (sym val)
-         (if (set sym val)
-             (progn
-               (define-key ctl-x-map "\C-j" 'dired-jump)
-               (define-key ctl-x-4-map "\C-j" 'dired-jump-other-window))
-           (if (eq 'dired-jump (lookup-key ctl-x-map "\C-j"))
-               (define-key ctl-x-map "\C-j" nil))
-           (if (eq 'dired-jump-other-window (lookup-key ctl-x-4-map "\C-j"))
-               (define-key ctl-x-4-map "\C-j" nil))))
-  :group 'dired-keys)
+(defvar dired-bind-jump t)
+(make-obsolete-variable 'dired-bind-jump "not used." "28.1")
 
 (defcustom dired-bind-man t
   "Non-nil means bind `dired-man' to \"N\" in Dired, otherwise do not.
@@ -137,6 +124,7 @@ folding to be used on case-insensitive filesystems only."
       (file-name-case-insensitive-p dir)
     dired-omit-case-fold))
 
+;;;###autoload
 (define-minor-mode dired-omit-mode
   "Toggle omission of uninteresting files in Dired (Dired-Omit mode).
 
@@ -159,7 +147,7 @@ See Info node `(dired-x) Omitting Variables' for more information."
 
 (put 'dired-omit-mode 'safe-local-variable 'booleanp)
 
-(defcustom dired-omit-files "^\\.?#\\|^\\.$\\|^\\.\\.$"
+(defcustom dired-omit-files "\\`[.]?#\\|\\`[.][.]?\\'"
   "Filenames matching this regexp will not be displayed.
 This only has effect when `dired-omit-mode' is t.  See interactive function
 `dired-omit-mode' (\\[dired-omit-mode]) and variable
@@ -230,24 +218,25 @@ to nil: a pipe using `zcat' or `gunzip -c' will be used."
   :group 'dired-x)
 
 ;;; KEY BINDINGS.
+(when (keymapp (lookup-key dired-mode-map "*"))
+  (define-key dired-mode-map "*(" 'dired-mark-sexp)
+  (define-key dired-mode-map "*O" 'dired-mark-omitted)
+  (define-key dired-mode-map "*." 'dired-mark-extension))
+
+(when (keymapp (lookup-key dired-mode-map "%"))
+  (define-key dired-mode-map "%Y" 'dired-do-relsymlink-regexp))
 
 (define-key dired-mode-map "\C-x\M-o" 'dired-omit-mode)
-(define-key dired-mode-map "*O" 'dired-mark-omitted)
 (define-key dired-mode-map "\M-(" 'dired-mark-sexp)
-(define-key dired-mode-map "*(" 'dired-mark-sexp)
-(define-key dired-mode-map "*." 'dired-mark-extension)
 (define-key dired-mode-map "\M-!" 'dired-smart-shell-command)
 (define-key dired-mode-map "\M-G" 'dired-goto-subdir)
 (define-key dired-mode-map "F" 'dired-do-find-marked-files)
 (define-key dired-mode-map "Y"  'dired-do-relsymlink)
-(define-key dired-mode-map "%Y" 'dired-do-relsymlink-regexp)
 (define-key dired-mode-map "V" 'dired-do-run-mail)
 
 ;;; MENU BINDINGS
 
-(require 'easymenu)
-
-(let ((menu (lookup-key dired-mode-map [menu-bar])))
+(when-let ((menu (lookup-key dired-mode-map [menu-bar])))
   (easy-menu-add-item menu '("Operate")
                       ["Find Files" dired-do-find-marked-files
                        :help "Find current or marked files"]
@@ -304,7 +293,6 @@ To see the options you can set, use M-x customize-group RET dired-x RET.
 See also the functions:
   `dired-flag-extension'
   `dired-virtual'
-  `dired-jump'
   `dired-man'
   `dired-vm'
   `dired-rmail'
@@ -323,21 +311,19 @@ See also the functions:
              (when file
                (file-name-extension file))))
          (suffix
-          (read-string (format "%s extension%s: "
-                               (if (equal current-prefix-arg '(4))
-                                   "UNmarking"
-                                 "Marking")
-                               (if default
-                                   (format " (default %s)" default)
-                                 "")) nil nil default))
+          (read-string (format-prompt
+                        "%s extension" default
+                        (if (equal current-prefix-arg '(4))
+                            "UNmarking"
+                          "Marking"))
+                       nil nil default))
          (marker
           (pcase current-prefix-arg
             ('(4) ?\s)
             ('(16)
              (let* ((dflt (char-to-string dired-marker-char))
                     (input (read-string
-                            (format
-                             "Marker character to use (default %s): " dflt)
+                            (format-prompt "Marker character to use" dflt)
                             nil nil dflt)))
                (aref input 0)))
             (_ dired-marker-char))))
@@ -444,68 +430,7 @@ See variables `dired-texinfo-unclean-extensions',
                                 dired-bibtex-unclean-extensions
                                 dired-tex-unclean-extensions
                                 (list ".dvi"))))
-
-(defvar archive-superior-buffer)
-(defvar tar-superior-buffer)
-;;; JUMP.
 
-;;;###autoload
-(defun dired-jump (&optional other-window file-name)
-  "Jump to Dired buffer corresponding to current buffer.
-If in a file, Dired the current directory and move to file's line.
-If in Dired already, pop up a level and goto old directory's line.
-In case the proper Dired file line cannot be found, refresh the dired
-buffer and try again.
-When OTHER-WINDOW is non-nil, jump to Dired buffer in other window.
-When FILE-NAME is non-nil, jump to its line in Dired.
-Interactively with prefix argument, read FILE-NAME."
-  (interactive
-   (list nil (and current-prefix-arg
-                  (read-file-name "Jump to Dired file: "))))
-  (cond
-   ((and (bound-and-true-p archive-subfile-mode)
-         (buffer-live-p archive-superior-buffer))
-    (switch-to-buffer archive-superior-buffer))
-   ((and (bound-and-true-p tar-subfile-mode)
-         (buffer-live-p tar-superior-buffer))
-    (switch-to-buffer tar-superior-buffer))
-   (t
-    ;; Expand file-name before `dired-goto-file' call:
-    ;; `dired-goto-file' requires its argument to be an absolute
-    ;; file name; the result of `read-file-name' could be
-    ;; an abbreviated file name (Bug#24409).
-    (let* ((file (or (and file-name (expand-file-name file-name))
-                     buffer-file-name))
-           (dir (if file (file-name-directory file) default-directory)))
-      (if (and (eq major-mode 'dired-mode) (null file-name))
-          (progn
-            (setq dir (dired-current-directory))
-            (dired-up-directory other-window)
-            (unless (dired-goto-file dir)
-              ;; refresh and try again
-              (dired-insert-subdir (file-name-directory dir))
-              (dired-goto-file dir)))
-        (if other-window
-            (dired-other-window dir)
-          (dired dir))
-        (if file
-            (or (dired-goto-file file)
-                ;; refresh and try again
-                (progn
-                  (dired-insert-subdir (file-name-directory file))
-                  (dired-goto-file file))
-                ;; Toggle omitting, if it is on, and try again.
-                (when dired-omit-mode
-                  (dired-omit-mode)
-                  (dired-goto-file file)))))))))
-
-;;;###autoload
-(defun dired-jump-other-window (&optional file-name)
-  "Like \\[dired-jump] (`dired-jump') but in other window."
-  (interactive
-   (list (and current-prefix-arg
-	      (read-file-name "Jump to Dired file: "))))
-  (dired-jump t file-name))
 
 ;;; OMITTING.
 
@@ -520,7 +445,7 @@ If it is `no-dir', omitting is much faster, but you can only match
 against the non-directory part of the file name.  Set it to nil if you
 need to match the entire file name.")
 
-;; \017=^O for Omit - other packages can chose other control characters.
+;; \017=^O for Omit - other packages can choose other control characters.
 (defvar dired-omit-marker-char ?\017
   "Temporary marker used by Dired-Omit.
 Should never be used as marker by the user or other packages.")
@@ -620,7 +545,9 @@ interactively, prompt for REGEXP.
 With prefix argument, unflag all those files.
 Optional fourth argument LOCALP is as in `dired-get-filename'.
 Optional fifth argument CASE-FOLD-P specifies the value of
-`case-fold-search' used for matching REGEXP."
+`case-fold-search' used for matching REGEXP.
+If the region is active in Transient Mark mode, operate only on
+files in the active region if `dired-mark-region' is non-nil."
   (interactive
    (list (read-regexp
 	  "Mark unmarked files matching regexp (default all): "
@@ -629,9 +556,12 @@ Optional fifth argument CASE-FOLD-P specifies the value of
   (let ((dired-marker-char (if unflag-p ?\s dired-marker-char)))
     (dired-mark-if
      (and
-      ;; not already marked
-      (= (following-char) ?\s)
-      ;; uninteresting
+      (if unflag-p
+          ;; Already marked.
+          (not (= (following-char) ?\s))
+        ;; Not already marked.
+        (= (following-char) ?\s))
+      ;; Interesting.
       (let ((fn (dired-get-filename localp t))
             ;; Match patterns case-insensitively on case-insensitive
             ;; systems
@@ -658,7 +588,7 @@ visit that file and turn on Virtual Dired mode.  But don't try to save
 this file, as dired-virtual indents the listing and thus changes the
 buffer.
 
-If you have save a Dired buffer in a file you can use \\[dired-virtual] to
+If you have saved a Dired buffer in a file you can use \\[dired-virtual] to
 resume it in a later session.
 
 Type \\<dired-mode-map>\\[revert-buffer] \
@@ -704,7 +634,7 @@ you can relist single subdirs using \\[dired-do-redisplay]."
   (dired-mode dirname (or switches dired-listing-switches))
   (setq mode-name "Virtual Dired"
         revert-buffer-function 'dired-virtual-revert)
-  (set (make-local-variable 'dired-subdir-alist) nil)
+  (setq-local dired-subdir-alist nil)
   (dired-build-subdir-alist)
   (goto-char (point-min))
   (dired-initial-position dirname))
@@ -824,6 +754,7 @@ Also useful for `auto-mode-alist' like this:
 ;; install GNU zip's version of zcat.
 
 (autoload 'Man-support-local-filenames "man")
+(autoload 'vc-responsible-backend "vc")
 
 (defvar dired-guess-shell-alist-default
   (list
@@ -906,7 +837,10 @@ Also useful for `auto-mode-alist' like this:
 	 '(concat "znew" (if dired-guess-shell-gzip-quiet " -q")
 		  " " dired-guess-shell-znew-switches))
 
-   '("\\.patch\\'" "cat * | patch")
+   (list "\\.patch\\'"
+         '(if (eq (ignore-errors (vc-responsible-backend default-directory)) 'Git)
+              "cat * | git apply"
+            "cat * | patch"))
    (list "\\.patch\\.g?z\\'" "gunzip -qc * | patch"
 	 ;; Optional decompression.
 	 '(concat "gunzip" (if dired-guess-shell-gzip-quiet " -q")))
@@ -1290,7 +1224,7 @@ Otherwise obeys the value of `dired-vm-read-only-folders'."
                              (and dired-vm-read-only-folders
                                   (not (file-writable-p fil)))))
     ;; So that pressing `v' inside VM does prompt within current directory:
-    (set (make-local-variable 'vm-folder-directory) dir)))
+    (setq-local vm-folder-directory dir)))
 
 (defun dired-rmail ()
   "Run RMAIL on this file."
@@ -1376,7 +1310,9 @@ present for some values of `ls-lisp-emulation'.
 
 This function operates only on the buffer content and does not
 refer at all to the underlying file system.  Contrast this with
-`find-dired', which might be preferable for the task at hand."
+`find-dired', which might be preferable for the task at hand.
+If the region is active in Transient Mark mode, mark files
+only in the active region if `dired-mark-region' is non-nil."
   ;; Using sym="" instead of nil avoids the trap of
   ;; (string-match "foo" sym) into which a user would soon fall.
   ;; Give `equal' instead of `=' in the example, as this works on
@@ -1545,7 +1481,9 @@ a prefix argument, when it offers the filename near point as a default."
 ;;; Internal functions.
 
 ;; Fixme: This should probably use `thing-at-point'.  -- fx
-(defun dired-filename-at-point ()
+(define-obsolete-function-alias 'dired-filename-at-point
+  #'dired-x-guess-file-name-at-point "28.1")
+(defun dired-x-guess-file-name-at-point ()
   "Return the filename closest to point, expanded.
 Point should be in or after a filename."
   (save-excursion
@@ -1579,7 +1517,7 @@ Point should be in or after a filename."
   "Return filename prompting with PROMPT with completion.
 If `current-prefix-arg' is non-nil, uses name at point as guess."
   (if current-prefix-arg
-      (let ((guess (dired-filename-at-point)))
+      (let ((guess (dired-x-guess-file-name-at-point)))
         (read-file-name prompt
                         (file-name-directory guess)
                         guess
@@ -1598,7 +1536,6 @@ If `current-prefix-arg' is non-nil, uses name at point as guess."
 (provide 'dired-x)
 
 ;; Local Variables:
-;; byte-compile-dynamic: t
 ;; generated-autoload-file: "dired-loaddefs.el"
 ;; End:
 

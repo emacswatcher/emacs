@@ -1,6 +1,6 @@
 ;;; ns-win.el --- lisp side of interface with NeXT/Open/GNUstep/macOS window system  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993-1994, 2005-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1994, 2005-2021 Free Software Foundation, Inc.
 
 ;; Authors: Carl Edman
 ;;	Christian Limpach
@@ -47,7 +47,6 @@
 ;; Documentation-purposes only: actually loaded in loadup.el.
 (require 'frame)
 (require 'mouse)
-(require 'faces)
 (require 'menu-bar)
 (require 'fontset)
 (require 'dnd)
@@ -102,7 +101,7 @@ The properties returned may include `top', `left', `height', and `width'."
 
 ;; Here are some Nextstep-like bindings for command key sequences.
 (define-key global-map [?\s-,] 'customize)
-(define-key global-map [?\s-'] 'next-multiframe-window)
+(define-key global-map [?\s-'] 'next-window-any-frame)
 (define-key global-map [?\s-`] 'other-frame)
 (define-key global-map [?\s-~] 'ns-prev-frame)
 (define-key global-map [?\s--] 'center-line)
@@ -121,6 +120,15 @@ The properties returned may include `top', `left', `height', and `width'."
 (define-key global-map [?\s-d] 'isearch-repeat-backward)
 (define-key global-map [?\s-e] 'isearch-yank-kill)
 (define-key global-map [?\s-f] 'isearch-forward)
+(define-key esc-map [?\s-f] 'isearch-forward-regexp)
+(define-key minibuffer-local-isearch-map [?\s-f]
+  'isearch-forward-exit-minibuffer)
+(define-key isearch-mode-map [?\s-f] 'isearch-repeat-forward)
+(define-key global-map [?\s-F] 'isearch-backward)
+(define-key esc-map [?\s-F] 'isearch-backward-regexp)
+(define-key minibuffer-local-isearch-map [?\s-F]
+  'isearch-reverse-exit-minibuffer)
+(define-key isearch-mode-map [?\s-F] 'isearch-repeat-backward)
 (define-key global-map [?\s-g] 'isearch-repeat-forward)
 (define-key global-map [?\s-h] 'ns-do-hide-emacs)
 (define-key global-map [?\s-H] 'ns-do-hide-others)
@@ -148,9 +156,8 @@ The properties returned may include `top', `left', `height', and `width'."
 (define-key global-map [?\s-|] 'shell-command-on-region)
 (define-key global-map [s-kp-bar] 'shell-command-on-region)
 (define-key global-map [?\C-\s- ] 'ns-do-show-character-palette)
-;; (as in Terminal.app)
-(define-key global-map [s-right] 'ns-next-frame)
-(define-key global-map [s-left] 'ns-prev-frame)
+(define-key global-map [s-right] 'move-end-of-line)
+(define-key global-map [s-left] 'move-beginning-of-line)
 
 (define-key global-map [home] 'beginning-of-buffer)
 (define-key global-map [end] 'end-of-buffer)
@@ -311,15 +318,12 @@ is currently being used."
   "Insert contents of `ns-working-text' as UTF-8 string and mark with
 `ns-working-overlay'.  Any previously existing working text is cleared first.
 The overlay is assigned the face `ns-working-text-face'."
-  ;; FIXME: if buffer is read-only, don't try to insert anything, and
-  ;; if text is bound to a command, execute that instead (Bug#1453).
   (interactive)
   (ns-delete-working-text)
   (let ((start (point)))
-    (insert ns-working-text)
-    (overlay-put (setq ns-working-overlay (make-overlay start (point)
-							(current-buffer) nil t))
-		 'face 'ns-working-text-face)))
+    (overlay-put (setq ns-working-overlay (make-overlay start (point)))
+                 'after-string
+                 (propertize ns-working-text 'face 'ns-working-text-face))))
 
 (defun ns-echo-working-text ()
   "Echo contents of `ns-working-text' in message display area.
@@ -342,8 +346,7 @@ See `ns-insert-working-text'."
          ;; Still alive?
          (overlay-buffer ns-working-overlay))
     (with-current-buffer (overlay-buffer ns-working-overlay)
-      (delete-region (overlay-start ns-working-overlay)
-                     (overlay-end ns-working-overlay))
+      (overlay-put ns-working-overlay 'after-string nil)
       (delete-overlay ns-working-overlay)))
    ((integerp ns-working-overlay)
     (let ((msg (current-message))
@@ -371,9 +374,8 @@ prompting.  If file is a directory perform a `find-file' on it."
         (find-file f)
       (push-mark (+ (point) (cadr (insert-file-contents f)))))))
 
-(defvar ns-select-overlay nil
+(defvar-local ns-select-overlay nil
   "Overlay used to highlight areas in files requested by Nextstep apps.")
-(make-variable-buffer-local 'ns-select-overlay)
 
 (defvar ns-input-line) 			; nsterm.m
 
@@ -515,15 +517,9 @@ string dropped into the current buffer."
     (set-frame-selected-window nil window)
     (raise-frame)
     (setq window (selected-window))
-    (cond ((memq 'ns-drag-operation-generic operations)
-           ;; Perform the default action for the type.
-           (if (eq type 'file)
-               (dolist (data objects)
-                 (dnd-handle-one-url window 'private (concat "file:" data)))
-             (dnd-insert-text window 'private string)))
-          ((memq 'ns-drag-operation-copy operations)
-           ;; Try to open the file/URL.  If type is nil, try to open
-           ;; it as a URL anyway.
+    (cond ((or (memq 'ns-drag-operation-generic operations)
+               (memq 'ns-drag-operation-copy operations))
+           ;; Perform the default/copy action.
            (dolist (data objects)
              (dnd-handle-one-url window 'private (if (eq type 'file)
                                                      (concat "file:" data)
@@ -636,15 +632,21 @@ This function has been overloaded in Nextstep.")
 (defvar ns-input-fontsize)
 
 (defun ns-respond-to-change-font ()
-  "Respond to changeFont: event, expecting `ns-input-font' and\n\
-`ns-input-fontsize' of new font."
+  "Set the font chosen in the font-picker panel.
+Respond to changeFont: event, expecting ns-input-font and
+ns-input-fontsize of new font."
   (interactive)
-  (modify-frame-parameters (selected-frame)
-                           (list (cons 'fontsize ns-input-fontsize)))
-  (modify-frame-parameters (selected-frame)
-                           (list (cons 'font ns-input-font)))
-  (set-frame-font ns-input-font))
-
+  (let ((face 'default))
+    (set-face-attribute face t
+                        :family ns-input-font
+                        :height (* 10 ns-input-fontsize))
+    (set-face-attribute face (selected-frame)
+                        :family ns-input-font
+                        :height (* 10 ns-input-fontsize))
+    (let ((spec (list (list t (face-attr-construct 'default)))))
+      (put face 'customized-face spec)
+      (custom-push-theme 'theme-face face 'user 'set spec)
+      (put face 'face-modified nil))))
 
 ;; Default fontset for macOS.  This is mainly here to show how a fontset
 ;; can be set up manually.  Ordinarily, fontsets are auto-created whenever
@@ -745,10 +747,6 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
                 (string-to-number (match-string 1 ns-version-string)))))
     ;; Appkit 1138 ~= macOS 10.7.
     (when (>= appkit-version 1138)
-      (setq mouse-wheel-scroll-amount '(1 ((shift) . 5) ((control))))
-      (put 'mouse-wheel-scroll-amount 'customized-value
-           (list (custom-quote (symbol-value 'mouse-wheel-scroll-amount))))
-
       (setq mouse-wheel-progressive-speed nil)
       (put 'mouse-wheel-progressive-speed 'customized-value
            (list (custom-quote

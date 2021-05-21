@@ -1,6 +1,6 @@
 ;;; esh-ext.el --- commands external to Eshell  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2021 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -74,10 +74,8 @@ but Eshell will be able to understand
   "Search the environment path for NAME."
   (if (file-name-absolute-p name)
       name
-    (let ((list (eshell-parse-colon-path eshell-path-env))
+    (let ((list (eshell-get-path))
 	  suffixes n1 n2 file)
-      (if (eshell-under-windows-p)
-          (push "." list))
       (while list
 	(setq n1 (concat (car list) name))
 	(setq suffixes eshell-binary-suffixes)

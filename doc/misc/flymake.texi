@@ -14,7 +14,7 @@
 This manual is for GNU Flymake (version @value{VERSION}, @value{UPDATED}),
 which is a universal on-the-fly syntax checker for GNU Emacs.
 
-Copyright @copyright{} 2004--2019 Free Software Foundation, Inc.
+Copyright @copyright{} 2004--2021 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -88,10 +88,6 @@ the buffer is saved, unless @code{flymake-start-on-save-buffer} is
 nil;
 
 @item
-a newline character is added to the buffer, unless
-@code{flymake-start-syntax-check-on-newline} is nil;
-
-@item
 some changes were made to the buffer more than @code{0.5} seconds ago
 (the delay is configurable in @code{flymake-no-changes-timeout}).
 @end itemize
@@ -107,7 +103,7 @@ should also display a tool-tip with the same information.
 
 @code{flymake-goto-next-error} and @code{flymake-goto-prev-error} are
 commands that allow easy navigation to the next/previous erroneous
-regions, respectively.  If might be a good idea to map them to @kbd{M-n}
+regions, respectively.  It might be a good idea to map them to @kbd{M-n}
 and @kbd{M-p} in @code{flymake-mode}, by adding to your init file:
 
 @lisp
@@ -217,14 +213,17 @@ This section summarizes customization variables used for the
 configuration of the Flymake user interface.
 
 @vtable @code
+@item flymake-mode-line-format
+Format to use for the Flymake mode line indicator.
+
+@item flymake-mode-line-counter-format
+Mode-line construct for formatting Flymake diagnostic counters inside
+the Flymake mode line indicator.
+
 @item flymake-no-changes-timeout
 If any changes are made to the buffer, syntax check is automatically
 started after this many seconds, unless the user makes another change,
 which resets the timer.
-
-@item flymake-start-syntax-check-on-newline
-A boolean flag indicating whether to start syntax check immediately
-after a newline character is inserted into the buffer.
 
 @item flymake-start-on-flymake-mode
 A boolean flag indicating whether to start syntax check immediately
@@ -343,6 +342,11 @@ diagnostic's severity.  The higher the value, the more serious is the
 error.  If the overlay property @code{priority} is not specified in
 @code{flymake-overlay-control}, @code{flymake-severity} is used to set
 it and help sort overlapping overlays.
+
+@item
+@vindex flymake-type-name
+@code{flymake-type-name} is a string used to succinctly name the error
+type, in case the name of the symbol associated with it is very long.
 
 @item
 @vindex flymake-category
@@ -468,7 +472,7 @@ string containing the text contained between those positions (if any),
 after the change was performed.
 
 @item @code{:changes-start} and @code{:changes-end}
-The value is, repectively, the minimum and maximum buffer positions
+The value is, respectively, the minimum and maximum buffer positions
 touched by the recent changes.  These are provided for convenience and
 only if @code{:recent-changes} is also provided.
 
@@ -551,7 +555,9 @@ by calling the function @code{flymake-make-diagnostic}.
 Make a Flymake diagnostic for @var{buffer}'s region from @var{beg} to
 @var{end}.  @var{type} is a diagnostic symbol (@pxref{Flymake error
 types}), and @var{text} is a description of the problem detected in
-this region.
+this region.  Currently, it is unspecified behavior to make
+diagnostics for buffers other than the buffer that the Flymake backend
+is responsible for.
 @end deffn
 
 @cindex access diagnostic object
@@ -582,7 +588,8 @@ can use the following function:
 Compute @var{buffer}'s region (@var{beg} .  @var{end}) corresponding
 to @var{line} and @var{col}.  If @var{col} is @code{nil}, return a
 region just for @var{line}.  Return @code{nil} if the region is
-invalid.
+invalid.  This function saves match data (@pxref{Saving Match Data,,,
+elisp, The Emacs Lisp Reference Manual}).
 @end deffn
 
 @cindex add a log message

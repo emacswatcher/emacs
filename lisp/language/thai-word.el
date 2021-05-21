@@ -1,10 +1,10 @@
-;;; thai-word.el -- find Thai word boundaries
+;;; thai-word.el --- find Thai word boundaries  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
 ;;   Registration Number H14PRO021
 
-;; Author: Kenichi HANDA <handa@etl.go.jp>
+;; Author: Kenichi Handa <handa@gnu.org>
 
 ;; Keywords: thai, word break, emacs
 
@@ -10973,8 +10973,7 @@ If COUNT is negative, move point backward (- COUNT) words."
 	    ;; special instead of using forward-word.
 	    (let ((start (point))
 		  (limit (match-end 0))
-		  boundaries
-		  tail)
+		  boundaries) ;; tail
 	      ;; If thai-forward-word has been called within a Thai
 	      ;; region, we must go back until the Thai region starts
 	      ;; to do the contextual analysis for finding word
@@ -11075,4 +11074,4 @@ With argument, do this that many times."
 ;; coding: utf-8
 ;; End:
 
-;; end of thai-word.el
+;;; thai-word.el ends here

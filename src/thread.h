@@ -1,5 +1,5 @@
 /* Thread definitions
-Copyright (C) 2012-2019 Free Software Foundation, Inc.
+Copyright (C) 2012-2021 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -140,7 +140,6 @@ struct thread_state
      for user-input when that process-filter was called.
      waiting_for_input cannot be used as that is by definition 0 when
      lisp code is being evalled.
-     This is also used in record_asynch_buffer_change.
      For that purpose, this must be 0
      when not inside wait_reading_process_output.  */
   int m_waiting_for_user_input_p;
@@ -168,6 +167,9 @@ struct thread_state
      points to the condition.  If the thread is interrupted, the
      interrupter should broadcast to this condition.  */
   sys_cond_t *wait_condvar;
+
+  /* Thread's name in the locale encoding.  */
+  char *thread_name;
 
   /* This thread might have released the global lock.  If so, this is
      non-zero.  When a thread runs outside thread_select with this
@@ -287,7 +289,6 @@ extern void finalize_one_mutex (struct Lisp_Mutex *);
 extern void finalize_one_condvar (struct Lisp_CondVar *);
 extern void maybe_reacquire_global_lock (void);
 
-extern void init_threads_once (void);
 extern void init_threads (void);
 extern void syms_of_threads (void);
 extern bool main_thread_p (const void *);

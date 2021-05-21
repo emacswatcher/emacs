@@ -1,6 +1,6 @@
 ;;; delsel.el --- delete selection if you insert  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992, 1997-1998, 2001-2019 Free Software Foundation,
+;; Copyright (C) 1992, 1997-1998, 2001-2021 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Matthieu Devin <devin@lucid.com>
@@ -84,9 +84,11 @@ information on adapting behavior of commands in Delete Selection mode."
 
 (defvar delsel--replace-text-or-position nil)
 
+;;;###autoload
 (defun delete-active-region (&optional killp)
   "Delete the active region.
 If KILLP in not-nil, the active region is killed instead of deleted."
+  (interactive "P")
   (cond
    (killp
     ;; Don't allow `kill-region' to change the value of `this-command'.
@@ -217,6 +219,10 @@ With ARG, repeat that many times.  `C-u' means until end of buffer."
 		   (self-insert-command
 		    (prefix-numeric-value current-prefix-arg))
 		   (setq this-command 'ignore)))))
+    ;; If the user has quit here (for instance, if the user is
+    ;; presented with a "changed on disk; really edit the buffer?"
+    ;; prompt, but hit `C-g'), just ding.
+    (quit (ding))
     ;; If ask-user-about-supersession-threat signals an error,
     ;; stop safe_run_hooks from clearing out pre-command-hook.
     (file-supersession (message "%s" (cadr data)) (ding))
@@ -270,6 +276,8 @@ to `delete-selection-mode'."
 (put 'quoted-insert 'delete-selection t)
 
 (put 'yank 'delete-selection 'yank)
+(put 'yank-pop 'delete-selection 'yank)
+(put 'yank-from-kill-ring 'delete-selection 'yank)
 (put 'clipboard-yank 'delete-selection 'yank)
 (put 'insert-register 'delete-selection t)
 ;; delete-backward-char and delete-forward-char already delete the selection by

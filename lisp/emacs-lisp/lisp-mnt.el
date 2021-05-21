@@ -1,6 +1,6 @@
 ;;; lisp-mnt.el --- utility functions for Emacs Lisp maintainers  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992, 1994, 1997, 2000-2019 Free Software Foundation,
+;; Copyright (C) 1992, 1994, 1997, 2000-2021 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Eric S. Raymond <esr@snark.thyrsus.com>
@@ -109,11 +109,6 @@
 ;;    * Footer line --- marks end-of-file so it can be distinguished from
 ;; an expanded formfeed or the results of truncation.
 
-;;; Change Log:
-
-;; Tue Jul 14 23:44:17 1992	ESR
-;;	* Created.
-
 ;;; Code:
 
 ;;; Variables:
@@ -208,6 +203,7 @@ a section."
     (when start
       (save-excursion
         (goto-char start)
+        (looking-at outline-regexp)
         (let ((level (lisp-outline-level))
               (case-fold-search t)
               next-section-found)
@@ -218,6 +214,7 @@ a section."
                              nil t))
                       (> (save-excursion
                            (beginning-of-line)
+                           (looking-at outline-regexp)
                            (lisp-outline-level))
                          level)))
 	  (min (if next-section-found
@@ -485,7 +482,18 @@ absent, return nil."
   (lm-with-file file
     (let ((start (lm-commentary-start)))
       (when start
-        (buffer-substring-no-properties start (lm-commentary-end))))))
+        (replace-regexp-in-string       ; Get rid of...
+         "[[:blank:]]*$" ""             ; trailing white-space
+         (replace-regexp-in-string
+          (format "%s\\|%s\\|%s"
+                  ;; commentary header
+                  (concat "^;;;[[:blank:]]*\\("
+                          lm-commentary-header
+                          "\\):[[:blank:]\n]*")
+                  "^;;[[:blank:]]?"     ; double semicolon prefix
+                  "[[:blank:]\n]*\\'")  ; trailing new-lines
+          "" (buffer-substring-no-properties
+              start (lm-commentary-end))))))))
 
 (defun lm-homepage (&optional file)
   "Return the homepage in file FILE, or current buffer if FILE is nil."

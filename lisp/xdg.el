@@ -1,6 +1,6 @@
 ;;; xdg.el --- XDG specification and standard support -*- lexical-binding: t -*-
 
-;; Copyright (C) 2017-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2021 Free Software Foundation, Inc.
 
 ;; Author: Mark Oteiza <mvoteiza@udel.edu>
 ;; Created: 27 January 2017
@@ -256,8 +256,8 @@ which is expected to be ordered by priority as in
         (when (file-readable-p f)
           (insert-file-contents-literally f nil nil nil t)
           (goto-char (point-min))
-          (let (end)
-            (while (not (or (eobp) end))
+          (let () ;; end
+            (while (not (or (eobp))) ;; end
               (if (= (following-char) ?\[)
                   (progn (setq sec (char-after (1+ (point))))
                          (forward-line))

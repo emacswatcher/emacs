@@ -1,6 +1,6 @@
-;;; gnus-bcklg.el --- backlog functions for Gnus
+;;; gnus-bcklg.el --- backlog functions for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1996-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2021 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news
@@ -46,8 +46,7 @@
 (defun gnus-backlog-shutdown ()
   "Clear all backlog variables and buffers."
   (interactive)
-  (when (get-buffer gnus-backlog-buffer)
-    (gnus-kill-buffer gnus-backlog-buffer))
+  (gnus-kill-buffer gnus-backlog-buffer)
   (setq gnus-backlog-articles nil))
 
 (defun gnus-backlog-enter-article (group number buffer)

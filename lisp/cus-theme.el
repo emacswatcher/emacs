@@ -1,7 +1,7 @@
-;;; cus-theme.el -- custom theme creation user interface  -*- lexical-binding: t -*-
-;;
-;; Copyright (C) 2001-2019 Free Software Foundation, Inc.
-;;
+;;; cus-theme.el --- custom theme creation user interface  -*- lexical-binding: t -*-
+
+;; Copyright (C) 2001-2021 Free Software Foundation, Inc.
+
 ;; Author: Alex Schroeder <alex@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: help, faces
@@ -419,14 +419,13 @@ It includes all variables in list VARS."
 			    (widget-value child)
 			  ;; Child is null if the widget is closed (hidden).
 			  (car (widget-get widget :shown-value)))))
-	    (when (boundp symbol)
-	      (unless (bolp)
-		(princ "\n"))
-	      (princ " '(")
-	      (prin1 symbol)
-	      (princ " ")
-	      (prin1 (custom-quote value))
-	      (princ ")")))))
+	    (unless (bolp)
+	      (princ "\n"))
+	    (princ " '(")
+	    (prin1 symbol)
+	    (princ " ")
+	    (prin1 (custom-quote value))
+	    (princ ")"))))
       (if (bolp)
 	  (princ " "))
       (princ ")")
@@ -454,7 +453,7 @@ It includes all faces in list FACES."
 		   ;; Child is null if the widget is closed (hidden).
 		   ((widget-get widget :shown-value))
 		   (t (custom-face-get-current-spec symbol)))))
-	    (when (and (facep symbol) value)
+	    (when value
 	      (princ (if (bolp) " '(" "\n '("))
 	      (prin1 symbol)
 	      (princ " ")
@@ -658,10 +657,12 @@ Theme files are named *-theme.el in `"))
 	    (insert-file-contents fn)
 	    (let ((sexp (let ((read-circle nil))
 			  (condition-case nil
-			      (read (current-buffer))
-			    (end-of-file nil)))))
-              (and (eq (car-safe sexp) 'deftheme)
-		   (setq doc (nth 2 sexp))))))))
+                              (progn
+                                (re-search-forward "^(deftheme")
+                                (beginning-of-line)
+                                (read (current-buffer)))
+                            (error nil)))))
+              (setq doc (nth 2 sexp)))))))
     (cond ((null doc)
 	   "(no documentation available)")
 	  ((string-match ".*" doc)

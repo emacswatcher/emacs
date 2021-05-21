@@ -1,6 +1,6 @@
-;; info.el --- Info package for Emacs  -*- lexical-binding:t -*-
+;;; info.el --- Info package for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1986, 1992-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1985-1986, 1992-2021 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: help
@@ -67,7 +67,6 @@ Intermediate Info nodes are nodes visited by Info internally in the process of
 searching the node to display.  Intermediate nodes are not presented
 to the user."
   :type 'boolean
-  :group 'info
   :version "24.1")
 
 (defvar Info-enable-active-nodes nil
@@ -79,8 +78,7 @@ The Lisp code is executed when the node is selected.")
   '((((class color) (background light)) :foreground "brown" :weight bold :slant italic)
     (((class color) (background dark)) :foreground "white" :weight bold :slant italic)
     (t :weight bold :slant italic))
-  "Face for Info node names."
-  :group 'info)
+  "Face for Info node names.")
 
 (defface info-title-1
   '((((type tty pc) (class color) (background light))
@@ -88,26 +86,22 @@ The Lisp code is executed when the node is selected.")
     (((type tty pc) (class color) (background dark))
      :foreground "yellow" :weight bold)
     (t :height 1.2 :inherit info-title-2))
-  "Face for info titles at level 1."
-  :group 'info)
+  "Face for info titles at level 1.")
 
 (defface info-title-2
   '((((type tty pc) (class color)) :foreground "lightblue" :weight bold)
     (t :height 1.2 :inherit info-title-3))
-  "Face for info titles at level 2."
-  :group 'info)
+  "Face for info titles at level 2.")
 
 (defface info-title-3
   '((((type tty pc) (class color)) :weight bold)
     (t :height 1.2 :inherit info-title-4))
-  "Face for info titles at level 3."
-  :group 'info)
+  "Face for info titles at level 3.")
 
 (defface info-title-4
   '((((type tty pc) (class color)) :weight bold)
     (t :weight bold :inherit variable-pitch))
-  "Face for info titles at level 4."
-  :group 'info)
+  "Face for info titles at level 4.")
 
 (defface info-menu-header
   '((((type tty pc))
@@ -116,31 +110,26 @@ The Lisp code is executed when the node is selected.")
     (t
      :inherit variable-pitch
      :weight bold))
-  "Face for headers in Info menus."
-  :group 'info)
+  "Face for headers in Info menus.")
 
 (defface info-menu-star
   '((((class color)) :foreground "red1")
     (t :underline t))
-  "Face for every third `*' in an Info menu."
-  :group 'info)
+  "Face for every third `*' in an Info menu.")
 
 (defface info-xref
   '((t :inherit link))
-  "Face for unvisited Info cross-references."
-  :group 'info)
+  "Face for unvisited Info cross-references.")
 
 (defface info-xref-visited
   '((t :inherit (link-visited info-xref)))
   "Face for visited Info cross-references."
-  :version "22.1"
-  :group 'info)
+  :version "22.1")
 
 (defcustom Info-fontify-visited-nodes t
   "Non-nil to fontify references to visited nodes in `info-xref-visited' face."
   :version "22.1"
-  :type 'boolean
-  :group 'info)
+  :type 'boolean)
 
 ;; It's unfortunate that nil means no fontification, as opposed to no limit,
 ;; since that differs from font-lock-maximum-size.
@@ -150,43 +139,35 @@ Set to nil to disable node fontification; set to t for no limit."
   :type '(choice (const :tag "No fontification" nil)
 		 (const :tag "No size limit" t)
 		 (integer :tag "Up to this many characters"))
-  :version "25.1"			; 100k -> 400k
-  :group 'info)
+  :version "25.1")             ; 100k -> 400k
 
 (defcustom Info-use-header-line t
   "Non-nil means to put the beginning-of-node links in an Emacs header-line.
 A header-line does not scroll with the rest of the buffer."
-  :type 'boolean
-  :group 'info)
+  :type 'boolean)
 
 (defface info-header-xref
   '((t :inherit info-xref))
-  "Face for Info cross-references in a node header."
-  :group 'info)
+  "Face for Info cross-references in a node header.")
 
 (defface info-header-node
   '((t :inherit info-node))
-  "Face for Info nodes in a node header."
-  :group 'info)
+  "Face for Info nodes in a node header.")
 
 (defface info-index-match
   '((t :inherit match))
   "Face used to highlight matches in an index entry."
-  :group 'info
   :version "24.4")
 
 ;; This is a defcustom largely so that we can get the benefit
-;; of custom-initialize-delay.  Perhaps it would work to make it a
-;; defvar and explicitly give it a standard-value property, and
-;; call custom-initialize-delay on it.
-;; The progn forces the autoloader to include the whole thing, not
-;; just an abbreviated version.  The value is initialized at startup
-;; time, when command-line calls custom-reevaluate-setting on all
-;; the defcustoms in custom-delayed-init-variables.  This is
-;; somewhat sub-optimal, as ideally this should be done when Info
-;; mode is first invoked.
+;; of `custom-initialize-delay'.  Perhaps it would work to make it a
+;; `defvar' and explicitly give it a `standard-value' property, and
+;; call `custom-initialize-delay' on it.
+;; The value is initialized at startup time, when command-line calls
+;; `custom-reevaluate-setting' on all the defcustoms in
+;; `custom-delayed-init-variables'.  This is somewhat sub-optimal, as ideally
+;; this should be done when Info mode is first invoked.
 ;;;###autoload
-(progn
 (defcustom Info-default-directory-list
   (let* ((config-dir
 	  (file-name-as-directory
@@ -248,9 +229,8 @@ the environment variable INFOPATH is set.
 Although this is a customizable variable, that is mainly for technical
 reasons.  Normally, you should either set INFOPATH or customize
 `Info-additional-directory-list', rather than changing this variable."
-  :initialize 'custom-initialize-delay
-  :type '(repeat directory)
-  :group 'info))
+  :initialize #'custom-initialize-delay
+  :type '(repeat directory))
 
 (defvar Info-directory-list nil
   "List of directories to search for Info documentation files.
@@ -285,8 +265,7 @@ a version of Emacs without installing it.")
 (defcustom Info-additional-directory-list nil
   "List of additional directories to search for Info documentation files.
 These directories are searched after those in `Info-directory-list'."
-  :type '(repeat directory)
-  :group 'info)
+  :type '(repeat directory))
 
 (defcustom Info-scroll-prefer-subnodes nil
   "If non-nil, \\<Info-mode-map>\\[Info-scroll-up] in a menu visits subnodes.
@@ -300,15 +279,15 @@ Setting this option to nil results in behavior similar to the stand-alone
 Info reader program, which visits the first subnode from the menu only
 when you hit the end of the current node."
   :version "22.1"
-  :type 'boolean
-  :group 'info)
+  :type 'boolean)
 
 (defcustom Info-hide-note-references t
   "If non-nil, hide the tag and section reference in *note and * menu items.
-If value is non-nil but not `hide', also replaces the \"*note\" with \"see\".
-If value is non-nil but not t or `hide', the reference section is still shown.
-nil completely disables this feature.  If this is non-nil, you might
-want to set `Info-refill-paragraphs'."
+If the value is t, the default, replace \"*note\" with \"see\".
+If the value is `hide', remove \"*note\" without replacing it with anything.
+If value is non-nil, but not t or `hide', the reference section is still shown.
+nil completely disables this feature, leaving the original \"*note\" visible.
+If this is non-nil, you may wish setting `Info-refill-paragraphs' non-nil."
   :version "22.1"
   :type '(choice (const :tag "No hiding" nil)
 		 (const :tag "Replace tag and hide reference" t)
@@ -318,9 +297,8 @@ want to set `Info-refill-paragraphs'."
 	 (set sym val)
 	 (dolist (buffer (buffer-list))
 	   (with-current-buffer buffer
-	     (when (eq major-mode 'Info-mode)
-	       (revert-buffer t t)))))
-  :group 'info)
+             (when (derived-mode-p 'Info-mode)
+               (revert-buffer t t))))))
 
 (defcustom Info-refill-paragraphs nil
   "If non-nil, attempt to refill paragraphs with hidden references.
@@ -328,24 +306,23 @@ This refilling may accidentally remove explicit line breaks in the Info
 file, so be prepared for a few surprises if you enable this feature.
 This only has an effect if `Info-hide-note-references' is non-nil."
   :version "22.1"
-  :type 'boolean
-  :group 'info)
+  :type 'boolean)
 
 (defcustom Info-breadcrumbs-depth 4
   "Depth of breadcrumbs to display.
 0 means do not display breadcrumbs."
   :version "23.1"
-  :type 'integer
-  :group 'info)
+  :type 'integer)
 
 (defcustom Info-search-whitespace-regexp "\\s-+"
   "If non-nil, regular expression to match a sequence of whitespace chars.
 This applies to Info search for regular expressions.
 You might want to use something like \"[ \\t\\r\\n]+\" instead.
 In the Customization buffer, that is `[' followed by a space,
-a tab, a carriage return (control-M), a newline, and `]+'."
-  :type 'regexp
-  :group 'info)
+a tab, a carriage return (control-M), a newline, and `]+'.  Don't
+add any capturing groups into this value; that can change the
+numbering of existing capture groups in unexpected ways."
+  :type 'regexp)
 
 (defcustom Info-isearch-search t
   "If non-nil, isearch in Info searches through multiple nodes.
@@ -360,8 +337,7 @@ node depending on search direction.
 Setting this option to nil restores the default isearch behavior
 with wrapping around the current Info node."
   :version "22.1"
-  :type 'boolean
-  :group 'info)
+  :type 'boolean)
 
 (defvar Info-isearch-initial-node nil)
 (defvar Info-isearch-initial-history nil)
@@ -372,19 +348,11 @@ with wrapping around the current Info node."
   (unless (and (boundp 'Info-fontify) (null Info-fontify))
     '(turn-on-font-lock))
   "Hook run when activating Info Mode."
-  :type 'hook
-  :group 'info)
+  :type 'hook)
 
 (defcustom Info-selection-hook nil
   "Hook run when an Info node is selected as the current node."
-  :type 'hook
-  :group 'info)
-
-(defvar Info-edit-mode-hook nil
-  "Hook run when `Info-edit-mode' is activated.")
-
-(make-obsolete-variable 'Info-edit-mode-hook
-			"editing Info nodes by hand is not recommended." "24.4")
+  :type 'hook)
 
 (defvar-local Info-current-file nil
   "Info file that Info is now looking at, or nil.
@@ -642,14 +610,14 @@ Do the right thing if the file has been compressed or zipped."
 	  (insert-file-contents-literally fullname visit)
 	  (let ((inhibit-read-only t)
 		(coding-system-for-write 'no-conversion)
-		(inhibit-nul-byte-detection t) ; Index nodes include null bytes
+		(inhibit-null-byte-detection t) ; Index nodes include null bytes
 		(default-directory (or (file-name-directory fullname)
 				       default-directory)))
 	    (or (consp decoder)
 		(setq decoder (list decoder)))
 	    (apply #'call-process-region (point-min) (point-max)
 		   (car decoder) t t nil (cdr decoder))))
-      (let ((inhibit-nul-byte-detection t)) ; Index nodes include null bytes
+      (let ((inhibit-null-byte-detection t)) ; Index nodes include null bytes
 	(insert-file-contents fullname visit)))
 
     ;; Clear the caches of modified Info files.
@@ -845,7 +813,7 @@ See a list of available Info commands in `Info-mode'."
 (defun info-standalone ()
   "Run Emacs as a standalone Info reader.
 Usage:  emacs -f info-standalone [filename]
-In standalone mode, \\<Info-mode-map>\\[Info-exit] exits Emacs itself."
+In standalone mode, \\<Info-mode-map>\\[quit-window] exits Emacs itself."
   (setq Info-standalone t)
   (if (and command-line-args-left
 	   (not (string-match "^-" (car command-line-args-left))))
@@ -886,6 +854,7 @@ just return nil (no error).
 
 If NO-POP-TO-DIR, don't try to pop to the info buffer if we can't
 find a node."
+  (info-initialize)
   ;; Convert filename to lower case if not found as specified.
   ;; Expand it.
   (cond
@@ -947,7 +916,8 @@ find a node."
 	  (when (and (not no-pop-to-dir)
                      (not Info-current-file))
 	    (Info-directory))
-	  (user-error "Info file %s does not exist" filename)))
+          (user-error "Info file `%s' does not exist; consider installing it"
+                      filename)))
       filename))))
 
 (defun Info-find-node (filename nodename &optional no-going-back strict-case)
@@ -959,6 +929,7 @@ This function first looks for a case-sensitive match for NODENAME;
 if none is found it then tries a case-insensitive match (unless
 STRICT-CASE is non-nil)."
   (info-initialize)
+  (setq nodename (info--node-canonicalize-whitespace nodename))
   (setq filename (Info-find-file filename))
   ;; Go into Info buffer.
   (or (derived-mode-p 'Info-mode) (switch-to-buffer "*info*"))
@@ -1290,9 +1261,9 @@ is non-nil)."
       (if Info-history
 	  (let ((hist (car Info-history)))
 	    (setq Info-history (cdr Info-history))
-	    (Info-find-node (nth 0 hist) (nth 1 hist) t)
+	    (Info-find-node (nth 0 hist) (nth 1 hist) t t)
 	    (goto-char (nth 2 hist)))
-	(Info-find-node Info-current-file "Top" t)))))
+	(Info-find-node Info-current-file "Top" t t)))))
 
 ;; Cache the contents of the (virtual) dir file, once we have merged
 ;; it for the first time, so we can save time subsequently.
@@ -1377,7 +1348,7 @@ is non-nil)."
 			  ;; Index nodes include null bytes.  DIR
 			  ;; files should not have indices, but who
 			  ;; knows...
-			  (let ((inhibit-nul-byte-detection t))
+			  (let ((inhibit-null-byte-detection t))
 			    (insert-file-contents file)
 			    (setq Info-dir-file-name file)
 			    (push (current-buffer) buffers)
@@ -1475,9 +1446,10 @@ is non-nil)."
 
 (defvar Info-streamline-headings
   '(("Emacs" . "Emacs")
-    ("Programming" . "Programming")
+    ("Software development\\|Programming" . "Software development")
     ("Libraries" . "Libraries")
-    ("World Wide Web\\|Net Utilities" . "Net Utilities"))
+    ("Network applications\\|World Wide Web\\|Net Utilities"
+     . "Network applications"))
   "List of elements (RE . NAME) to merge headings matching RE to NAME.")
 
 (defun Info-dir-remove-duplicates ()
@@ -1531,7 +1503,7 @@ is non-nil)."
 	    (save-restriction
 	      (narrow-to-region start (point))
 	      (goto-char (point-min))
-	      (while (re-search-forward "^\\* \\([^:\n]+:\\(:\\|[^.\n]+\\).\\)" nil 'move)
+	      (while (re-search-forward "^\\* \\([^:\n]+:[^.\n]+.\\)" nil 'move)
 		;; Fold case straight away; `member-ignore-case' here wasteful.
 		(let ((x (downcase (match-string 1))))
 		  (if (member x seen)
@@ -1883,7 +1855,8 @@ See `completing-read' for a description of arguments and usage."
          (lambda (string pred action)
            (complete-with-action
             action
-            (Info-build-node-completions (Info-find-file file1 nil t))
+            (when-let ((file2 (Info-find-file file1 'noerror t)))
+              (Info-build-node-completions file2))
             string pred))
 	 nodename predicate code))))
    ;; Otherwise use Info-read-node-completion-table.
@@ -1909,10 +1882,17 @@ the Top node in FILENAME."
       (or (cdr (assoc filename Info-file-completions))
 	  (with-temp-buffer
 	    (Info-mode)
-	    (Info-goto-node (format "(%s)Top" filename))
-	    (Info-build-node-completions-1)
-	    (push (cons filename Info-current-file-completions) Info-file-completions)
-	    Info-current-file-completions))
+            (condition-case nil
+	        (Info-goto-node (format "(%s)Top" filename))
+              ;; `Info-goto-node' signals a `user-error' when there
+              ;; are no nodes in the file in question (for instance,
+              ;; if it's not actually an Info file).
+              (user-error nil)
+              (:success
+	       (Info-build-node-completions-1)
+	       (push (cons filename Info-current-file-completions)
+                     Info-file-completions)
+	       Info-current-file-completions))))
     (or Info-current-file-completions
 	(Info-build-node-completions-1))))
 
@@ -1998,14 +1978,11 @@ the Top node in FILENAME."
   "Search for REGEXP, starting from point, and select node it's found in.
 If DIRECTION is `backward', search in the reverse direction."
   (interactive (list (read-string
-		      (if Info-search-history
-			  (format "Regexp search%s (default %s): "
-				  (if case-fold-search "" " case-sensitively")
-				  (car Info-search-history))
-			(format "Regexp search%s: "
-				(if case-fold-search "" " case-sensitively")))
-		      nil 'Info-search-history)))
-  (deactivate-mark)
+                      (format-prompt
+                       "Regexp search%s" (car Info-search-history)
+		       (if case-fold-search "" " case-sensitively"))
+		      nil 'Info-search-history))
+               Info-mode)
   (when (equal regexp "")
     (setq regexp (car Info-search-history)))
   (when regexp
@@ -2098,6 +2075,7 @@ If DIRECTION is `backward', search in the reverse direction."
                (< found opoint-max))
           ;; Search landed in the same node
           (goto-char found)
+        (deactivate-mark)
         (widen)
         (goto-char found)
         (save-match-data (Info-select-node)))
@@ -2112,13 +2090,13 @@ If DIRECTION is `backward', search in the reverse direction."
 
 (defun Info-search-case-sensitively ()
   "Search for a regexp case-sensitively."
-  (interactive)
+  (interactive nil Info-mode)
   (let ((case-fold-search nil))
     (call-interactively 'Info-search)))
 
 (defun Info-search-next ()
   "Search for next regexp from a previous `Info-search' command."
-  (interactive)
+  (interactive nil Info-mode)
   (let ((case-fold-search Info-search-case-fold))
     (if Info-search-history
         (Info-search (car Info-search-history))
@@ -2127,13 +2105,11 @@ If DIRECTION is `backward', search in the reverse direction."
 (defun Info-search-backward (regexp &optional bound noerror count)
   "Search for REGEXP in the reverse direction."
   (interactive (list (read-string
-		      (if Info-search-history
-			  (format "Regexp search%s backward (default %s): "
-				  (if case-fold-search "" " case-sensitively")
-				  (car Info-search-history))
-			(format "Regexp search%s backward: "
-				(if case-fold-search "" " case-sensitively")))
-		      nil 'Info-search-history)))
+                      (format-prompt
+                       "Regexp search%s backward" (car Info-search-history)
+		       (if case-fold-search "" " case-sensitively"))
+		      nil 'Info-search-history))
+               Info-mode)
   (Info-search regexp bound noerror count 'backward))
 
 (defun Info-isearch-search ()
@@ -2172,8 +2148,10 @@ If DIRECTION is `backward', search in the reverse direction."
     (goto-char (if isearch-forward (point-min) (point-max)))))
 
 (defun Info-isearch-push-state ()
-  `(lambda (cmd)
-     (Info-isearch-pop-state cmd ',Info-current-file ',Info-current-node)))
+  (let ((file Info-current-file)
+        (node Info-current-node))
+    (lambda (cmd)
+      (Info-isearch-pop-state cmd file node))))
 
 (defun Info-isearch-pop-state (_cmd file node)
   (or (and (equal Info-current-file file)
@@ -2268,16 +2246,18 @@ End of submatch 0, 1, and 3 are the same, so you can safely concat."
        (match-string-no-properties 1)))
 
 (defun Info-next ()
-  "Go to the next node of this node."
-  (interactive)
+  "Go to the \"next\" node, staying on the same hierarchical level.
+This command doesn't descend into sub-nodes, like \\<Info-mode-map>\\[Info-forward-node] does."
+  (interactive nil Info-mode)
   ;; In case another window is currently selected
   (save-window-excursion
     (or (derived-mode-p 'Info-mode) (switch-to-buffer "*info*"))
     (Info-goto-node (Info-extract-pointer "next"))))
 
 (defun Info-prev ()
-  "Go to the previous node of this node."
-  (interactive)
+  "Go to the \"previous\" node, staying on the same hierarchical level.
+This command doesn't go up to the parent node, like \\<Info-mode-map>\\[Info-backward-node] does."
+  (interactive nil Info-mode)
   ;; In case another window is currently selected
   (save-window-excursion
     (or (derived-mode-p 'Info-mode) (switch-to-buffer "*info*"))
@@ -2286,7 +2266,7 @@ End of submatch 0, 1, and 3 are the same, so you can safely concat."
 (defun Info-up (&optional same-file)
   "Go to the superior node of this node.
 If SAME-FILE is non-nil, do not move to a different Info file."
-  (interactive)
+  (interactive nil Info-mode)
   ;; In case another window is currently selected
   (save-window-excursion
     (or (derived-mode-p 'Info-mode) (switch-to-buffer "*info*"))
@@ -2309,11 +2289,15 @@ If SAME-FILE is non-nil, do not move to a different Info file."
 		nil t))
 	  (progn (beginning-of-line) (if (looking-at "^\\* ") (forward-char 2)))
 	(goto-char p)
-	(Info-restore-point Info-history)))))
+	(Info-restore-point Info-history))))
+  ;; If scroll-conservatively is non-zero and less than 101, display
+  ;; as much of the superior node above the target line as possible.
+  (when (< 0 scroll-conservatively 101)
+    (recenter)))
 
 (defun Info-history-back ()
   "Go back in the history to the last node visited."
-  (interactive)
+  (interactive nil Info-mode)
   (or Info-history
       (user-error "This is the first Info node you looked at"))
   (let ((history-forward
@@ -2333,7 +2317,7 @@ If SAME-FILE is non-nil, do not move to a different Info file."
 
 (defun Info-history-forward ()
   "Go forward in the history of visited nodes."
-  (interactive)
+  (interactive nil Info-mode)
   (or Info-history-forward
       (user-error "This is the last Info node you looked at"))
   (let ((history-forward (cdr Info-history-forward))
@@ -2407,7 +2391,7 @@ If SAME-FILE is non-nil, do not move to a different Info file."
 
 (defun Info-history ()
   "Go to a node with a menu of visited nodes."
-  (interactive)
+  (interactive nil Info-mode)
   (Info-find-node "*History*" "Top")
   (Info-next-reference)
   (Info-next-reference))
@@ -2444,7 +2428,7 @@ If SAME-FILE is non-nil, do not move to a different Info file."
 (defun Info-toc ()
   "Go to a node with table of contents of the current Info file.
 Table of contents is created from the tree structure of menus."
-  (interactive)
+  (interactive nil Info-mode)
   (Info-find-node Info-current-file "*TOC*")
   (let ((prev-node (nth 1 (car Info-history))) p)
     (goto-char (point-min))
@@ -2456,11 +2440,12 @@ Table of contents is created from the tree structure of menus."
   "Insert table of contents with references to nodes."
   (let ((section "Top"))
     (while nodes
-      (let ((node (assoc (car nodes) node-list)))
-        (unless (member (nth 2 node) (list nil section))
-          (insert (setq section (nth 2 node)) "\n"))
-        (insert (make-string level ?\t))
-        (insert "*Note " (car nodes) ":: \n")
+      (let ((node (assoc (car nodes) node-list))
+            (indentation (make-string level ?\t)))
+        (when (and (not (member (nth 2 node) (list nil section)))
+                   (not (equal (nth 1 node) (nth 2 node))))
+          (insert indentation (setq section (nth 2 node)) "\n"))
+        (insert indentation "*Note " (car nodes) ":: \n")
         (Info-toc-insert (nth 3 node) node-list (1+ level) curr-file)
         (setq nodes (cdr nodes))))))
 
@@ -2498,7 +2483,7 @@ Table of contents is created from the tree structure of menus."
               (setq bound (or (and (equal nodename "Top")
                                    (save-excursion
                                      (re-search-forward
-                                      "^[ \t-]*The Detailed Node Listing" nil t)))
+                                      "^[ \t—-]*The Detailed Node Listing" nil t)))
                               bound))
               (while (< (point) bound)
                 (cond
@@ -2615,7 +2600,8 @@ new buffer."
 	   (list (if (equal input "")
 		     default input)
                  current-prefix-arg))
-       (user-error "No cross-references in this node"))))
+       (user-error "No cross-references in this node")))
+   Info-mode)
 
   (unless footnotename
     (error "No reference was specified"))
@@ -2686,13 +2672,15 @@ Because of ambiguities, this should be concatenated with something like
 ;;;       (setq Info-point-loc
 ;;;             (buffer-substring (match-beginning 0) (1- (match-beginning 1))))
       )
-    (replace-regexp-in-string
-     "[ \n]+" " "
+    (info--node-canonicalize-whitespace
      (or (and (not (equal (match-string-no-properties 2) ""))
 	      (match-string-no-properties 2))
 	 ;; If the node name is the menu entry name (using `entry::').
 	 (buffer-substring-no-properties
 	  (match-beginning 0) (1- (match-beginning 1)))))))
+
+(defun info--node-canonicalize-whitespace (string)
+  (replace-regexp-in-string "[ \t\n]+" " " string))
 
 ;; No one calls this.
 ;;(defun Info-menu-item-sequence (list)
@@ -2771,6 +2759,8 @@ Because of ambiguities, this should be concatenated with something like
               ;; Go back to the start node (for the next completion).
               (unless (equal Info-current-node orignode)
                 (Info-goto-node orignode))
+              ;; Arrange list to be in order found in node.
+              (setq completions (nreverse completions))
               ;; Update the cache.
               (setq Info-complete-cache
 		   (list Info-current-file Info-current-node
@@ -2810,13 +2800,11 @@ new buffer."
        (while (null item)
 	 (setq item (let ((completion-ignore-case t)
 			  (Info-complete-menu-buffer (current-buffer)))
-		      (completing-read (if default
-					   (format "Menu item (default %s): "
-						   default)
-					 "Menu item: ")
+		      (completing-read (format-prompt "Menu item" default)
 				       #'Info-complete-menu-item nil t nil nil
                                        default))))
-       (list item current-prefix-arg))))
+       (list item current-prefix-arg)))
+   Info-mode)
   ;; there is a problem here in that if several menu items have the same
   ;; name you can only go to the node of the first with this command.
   (Info-goto-node (Info-extract-menu-item menu-item)
@@ -2860,19 +2848,19 @@ new buffer."
 (defun Info-nth-menu-item ()
   "Go to the node of the Nth menu item.
 N is the digit argument used to invoke this command."
-  (interactive)
+  (interactive nil Info-mode)
   (Info-goto-node
    (Info-extract-menu-counting
     (- (aref (this-command-keys) (1- (length (this-command-keys)))) ?0))))
 
 (defun Info-top-node ()
   "Go to the Top node of this file."
-  (interactive)
+  (interactive nil Info-mode)
   (Info-goto-node "Top"))
 
 (defun Info-final-node ()
   "Go to the final node in this file."
-  (interactive)
+  (interactive nil Info-mode)
   (Info-goto-node "Top")
   (let ((Info-history nil)
 	(case-fold-search t))
@@ -2889,8 +2877,14 @@ N is the digit argument used to invoke this command."
       (Info-goto-node (Info-extract-menu-counting nil)))))
 
 (defun Info-forward-node (&optional not-down not-up no-error)
-  "Go forward one node, considering all nodes as forming one sequence."
-  (interactive)
+  "Go forward one node, considering all nodes as forming one sequence.
+Interactively, if the current node has sub-nodes, descend into the first
+sub-node; otherwise go to the \"next\" node, if it exists, else go \"up\"
+to the parent node.
+When called from Lisp, NOT-DOWN non-nil means don't descend into sub-nodes,
+NOT-UP non-nil means don't go to parent nodes, and NO-ERROR non-nil means
+don't signal a user-error if there's no node to go to."
+  (interactive nil Info-mode)
   (goto-char (point-min))
   (forward-line 1)
   (let ((case-fold-search t))
@@ -2924,8 +2918,10 @@ N is the digit argument used to invoke this command."
 	  (t (user-error "No pointer forward from this node")))))
 
 (defun Info-backward-node ()
-  "Go backward one node, considering all nodes as forming one sequence."
-  (interactive)
+  "Go backward one node, considering all nodes as forming one sequence.
+If the current node has a \"previous\" node, go to it, descending into its
+last sub-node, if any; otherwise go \"up\" to the parent node."
+  (interactive nil Info-mode)
   (let ((prevnode (Info-extract-pointer "prev[ious]*" t))
 	(upnode (Info-extract-pointer "up" t))
 	(case-fold-search t))
@@ -2950,16 +2946,11 @@ N is the digit argument used to invoke this command."
 	  (t
 	   (user-error "No pointer backward from this node")))))
 
-(defun Info-exit ()
-  "Exit Info by selecting some other buffer."
-  (interactive)
-  (if Info-standalone
-      (save-buffers-kill-emacs)
-    (quit-window)))
+(define-obsolete-function-alias 'Info-exit #'quit-window "27.1")
 
 (defun Info-next-menu-item ()
   "Go to the node of the next menu item."
-  (interactive)
+  (interactive nil Info-mode)
   ;; Bind this in case the user sets it to nil.
   (let* ((case-fold-search t)
 	 (node
@@ -2973,7 +2964,7 @@ N is the digit argument used to invoke this command."
 
 (defun Info-last-menu-item ()
   "Go to the node of the previous menu item."
-  (interactive)
+  (interactive nil Info-mode)
   (save-excursion
     (forward-line 1)
     ;; Bind this in case the user sets it to nil.
@@ -2992,7 +2983,7 @@ N is the digit argument used to invoke this command."
 
 (defun Info-next-preorder ()
   "Go to the next subnode or the next node, or go up a level."
-  (interactive)
+  (interactive nil Info-mode)
   (cond ((Info-no-error (Info-next-menu-item)))
 	((Info-no-error (Info-next)))
 	((Info-no-error (Info-up t))
@@ -3011,7 +3002,7 @@ N is the digit argument used to invoke this command."
 
 (defun Info-last-preorder ()
   "Go to the last node, popping up a level if there is none."
-  (interactive)
+  (interactive nil Info-mode)
   (cond ((and Info-scroll-prefer-subnodes
 	      (Info-no-error
 	       (Info-last-menu-item)
@@ -3063,7 +3054,7 @@ the menu of a node, it moves to subnode indicated by the following menu
 item.  (That case won't normally result from this command, but can happen
 in other ways.)"
 
-  (interactive)
+  (interactive nil Info-mode)
   (if (or (< (window-start) (point-min))
 	  (> (window-start) (point-max)))
       (set-window-start (selected-window) (point)))
@@ -3085,7 +3076,7 @@ in other ways.)"
 (defun Info-mouse-scroll-up (e)
   "Scroll one screenful forward in Info, using the mouse.
 See `Info-scroll-up'."
-  (interactive "e")
+  (interactive "e" Info-mode)
   (save-selected-window
     (if (eventp e)
 	(select-window (posn-window (event-start e))))
@@ -3097,7 +3088,7 @@ If point is within the menu of a node, and `Info-scroll-prefer-subnodes'
 is non-nil, this goes to its last subnode.  When you scroll past the
 beginning of a node, that goes to the previous node or back up to the
 parent node."
-  (interactive)
+  (interactive nil Info-mode)
   (if (or (< (window-start) (point-min))
 	  (> (window-start) (point-max)))
       (set-window-start (selected-window) (point)))
@@ -3117,7 +3108,7 @@ parent node."
 (defun Info-mouse-scroll-down (e)
   "Scroll one screenful backward in Info, using the mouse.
 See `Info-scroll-down'."
-  (interactive "e")
+  (interactive "e" Info-mode)
   (save-selected-window
     (if (eventp e)
 	(select-window (posn-window (event-start e))))
@@ -3126,9 +3117,11 @@ See `Info-scroll-down'."
 (defun Info-next-reference-or-link (pat prop)
   "Move point to the next pattern-based cross-reference or property-based link.
 The next cross-reference is searched using the regexp PAT, and the next link
-is searched using the text property PROP.  Move point to the closest found position
-of either a cross-reference found by `re-search-forward' or a link found by
-`next-single-char-property-change'.  Return the new position of point, or nil."
+is searched using the text property PROP.  Move point to the closest found
+position of either a cross-reference found by `re-search-forward' or a link
+found by `next-single-char-property-change'.
+
+Return the new position of point, or nil."
   (let ((pxref (save-excursion (re-search-forward pat nil t)))
 	(plink (next-single-char-property-change (point) prop)))
     (when (and (< plink (point-max)) (not (get-char-property plink prop)))
@@ -3141,10 +3134,12 @@ of either a cross-reference found by `re-search-forward' or a link found by
 
 (defun Info-prev-reference-or-link (pat prop)
   "Move point to the previous pattern-based cross-reference or property-based link.
-The previous cross-reference is searched using the regexp PAT, and the previous link
-is searched using the text property PROP.  Move point to the closest found position
-of either a cross-reference found by `re-search-backward' or a link found by
-`previous-single-char-property-change'.  Return the new position of point, or nil."
+The previous cross-reference is searched using the regexp PAT, and the previous
+link is searched using the text property PROP.  Move point to the closest found
+position of either a cross-reference found by `re-search-backward' or a link
+found by `previous-single-char-property-change'.
+
+Return the new position of point, or nil."
   (let ((pxref (save-excursion (re-search-backward pat nil t)))
 	(plink (previous-single-char-property-change (point) prop)))
     (when (and (> plink (point-min)) (not (get-char-property plink prop)))
@@ -3159,7 +3154,7 @@ of either a cross-reference found by `re-search-backward' or a link found by
   "Move cursor to the next cross-reference or menu item in the node.
 If COUNT is non-nil (interactively with a prefix arg), jump over
 COUNT cross-references."
-  (interactive "i\np")
+  (interactive "i\np" Info-mode)
   (unless count
     (setq count 1))
   (if (< count 0)
@@ -3187,7 +3182,7 @@ COUNT cross-references."
   "Move cursor to the previous cross-reference or menu item in the node.
 If COUNT is non-nil (interactively with a prefix arg), jump over
 COUNT cross-references."
-  (interactive "i\np")
+  (interactive "i\np" Info-mode)
   (unless count
     (setq count 1))
   (if (< count 0)
@@ -3385,7 +3380,7 @@ Give an empty topic name to go to the Index node itself."
 
 (defun Info-index-next (num)
   "Go to the next matching index item from the last \\<Info-mode-map>\\[Info-index] command."
-  (interactive "p")
+  (interactive "p" Info-mode)
   (or Info-index-alternatives
       (user-error "No previous `i' command"))
   (while (< num 0)
@@ -3507,7 +3502,8 @@ search results."
 	  (with-current-buffer Info-complete-menu-buffer
 	    (Info-goto-index)
 	    (completing-read "Index topic: " #'Info-complete-menu-item))
-	(kill-buffer Info-complete-menu-buffer)))))
+	(kill-buffer Info-complete-menu-buffer))))
+   Info-mode)
   (if (equal topic "")
       (Info-find-node Info-current-file "*Index*")
     (unless (assoc (cons Info-current-file topic) Info-virtual-index-nodes)
@@ -3787,20 +3783,8 @@ Build a menu of the possible matches."
     ;; there is no "nxml.el" (it's nxml-mode.el).
     ;; But package.el makes the same assumption.
     ;; I think nxml is the only exception - maybe it should be just be renamed.
-    (let ((str (ignore-errors (lm-commentary (find-library-name nodename)))))
-      (if (null str)
-	  (insert "Can’t find package description.\n\n")
-	(insert
-	 (with-temp-buffer
-	   (insert str)
-	   (goto-char (point-min))
-	   (delete-blank-lines)
-	   (goto-char (point-max))
-	   (delete-blank-lines)
-	   (goto-char (point-min))
-	   (while (re-search-forward "^;+ ?" nil t)
-	     (replace-match "" nil nil))
-	   (buffer-string))))))))
+    (insert (or (ignore-errors (lm-commentary (find-library-name nodename)))
+                (insert "Can’t find package description.\n\n"))))))
 
 ;;;###autoload
 (defun info-finder (&optional keywords)
@@ -3825,7 +3809,7 @@ with a list of packages that contain all specified keywords."
 
 (defun Info-undefined ()
   "Make command be undefined in Info."
-  (interactive)
+  (interactive nil Info-mode)
   (ding))
 
 (defun Info-help ()
@@ -3902,7 +3886,7 @@ ERRORSTRING optional fourth argument, controls action on no match:
   "\\<Info-mode-map>Follow a node reference near point.
 Like \\[Info-menu], \\[Info-follow-reference], \\[Info-next], \\[Info-prev] or \\[Info-up] command, depending on where you click.
 At end of the node's text, moves to the next node, or up if none."
-  (interactive "e")
+  (interactive "e" Info-mode)
   (mouse-set-point click)
   (and (not (Info-follow-nearest-node))
        (save-excursion (forward-line 1) (eobp))
@@ -3916,7 +3900,7 @@ if point is in a menu item description, follow that menu item.
 If FORK is non-nil (interactively with a prefix arg), show the node in
 a new Info buffer.
 If FORK is a string, it is the name to use for the new buffer."
-  (interactive "P")
+  (interactive "P" Info-mode)
   (or (Info-try-follow-nearest-node fork)
       (when (save-excursion
 	      (search-backward "\n* menu:" nil t))
@@ -3986,7 +3970,7 @@ If FORK is non-nil, it is passed to `Info-goto-node'."
 
 (defun Info-mouse-follow-link (click)
   "Follow a link where you click."
-  (interactive "@e")
+  (interactive "@e" Info-mode)
   (let* ((position (event-start click))
 	 (posn-string (and position (posn-string position)))
 	 (link-args (if posn-string
@@ -4047,7 +4031,7 @@ If FORK is non-nil, it is passed to `Info-goto-node'."
     (define-key map "m" 'Info-menu)
     (define-key map "n" 'Info-next)
     (define-key map "p" 'Info-prev)
-    (define-key map "q" 'Info-exit)
+    (define-key map "q" 'quit-window)
     (define-key map "r" 'Info-history-forward)
     (define-key map "s" 'Info-search)
     (define-key map "S" 'Info-search-case-sensitively)
@@ -4062,10 +4046,13 @@ If FORK is non-nil, it is passed to `Info-goto-node'."
     (define-key map "^" 'Info-up)
     (define-key map "," 'Info-index-next)
     (define-key map "\177" 'Info-scroll-down)
+    (define-key map [remap goto-line] 'goto-line-relative)
     (define-key map [mouse-2] 'Info-mouse-follow-nearest-node)
     (define-key map [follow-link] 'mouse-face)
     (define-key map [XF86Back] 'Info-history-back)
     (define-key map [XF86Forward] 'Info-history-forward)
+    (define-key map [tool-bar C-Back\ in\ history] 'Info-history-back-menu)
+    (define-key map [tool-bar C-Forward\ in\ history] 'Info-history-forward-menu)
     map)
   "Keymap containing Info commands.")
 
@@ -4096,22 +4083,28 @@ If FORK is non-nil, it is passed to `Info-goto-node'."
     :help "Go to top node of file"]
    ["Final Node" Info-final-node
     :help "Go to final node in this file"]
+   "---"
    ("Menu Item" ["You should never see this" report-emacs-bug t])
    ("Reference" ["You should never see this" report-emacs-bug t])
    ["Search..." Info-search
     :help "Search for regular expression in this Info file"]
    ["Search Next" Info-search-next
     :help "Search for another occurrence of regular expression"]
-   ["Go to Node..." Info-goto-node
+   "---"
+   ("History"
+    ["Back in history" Info-history-back :active Info-history
+     :help "Go back in history to the last node you were at"]
+    ["Forward in history" Info-history-forward :active Info-history-forward
+     :help "Go forward in history"]
+    ["Show History" Info-history :active Info-history-list
+     :help "Go to menu of visited nodes"])
+   ("Go to"
+    ["Go to Node..." Info-goto-node
     :help "Go to a named node"]
-   ["Back in history" Info-history-back :active Info-history
-    :help "Go back in history to the last node you were at"]
-   ["Forward in history" Info-history-forward :active Info-history-forward
-    :help "Go forward in history"]
-   ["History" Info-history :active Info-history-list
-    :help "Go to menu of visited nodes"]
-   ["Table of Contents" Info-toc
-    :help "Go to table of contents"]
+    ["Table of Contents" Info-toc
+     :help "Go to table of contents"]
+    ["Go to Directory" Info-directory
+     :help "Go to the Info directory node."])
    ("Index"
     ["Lookup a String..." Info-index
      :help "Look for a string in the index items"]
@@ -4125,7 +4118,8 @@ If FORK is non-nil, it is passed to `Info-goto-node'."
     :help "Copy the name of the current node into the kill ring"]
    ["Clone Info buffer" clone-buffer
     :help "Create a twin copy of the current Info buffer."]
-   ["Exit" Info-exit :help "Stop reading Info"]))
+   "---"
+   ["Exit" quit-window :help "Stop reading Info"]))
 
 
 (defvar info-tool-bar-map
@@ -4154,9 +4148,39 @@ If FORK is non-nil, it is passed to `Info-goto-node'."
 				   :label "Index")
     (tool-bar-local-item-from-menu 'Info-search "search" map Info-mode-map
 				   :vert-only t)
-    (tool-bar-local-item-from-menu 'Info-exit "exit" map Info-mode-map
+    (tool-bar-local-item-from-menu 'quit-window "exit" map Info-mode-map
 				   :vert-only t)
     map))
+
+(defun Info-history-menu (e name history command)
+  (let* ((i (length history))
+         (map (make-sparse-keymap name)))
+    (mapc (lambda (history)
+            (let ((file (nth 0 history))
+                  (node (nth 1 history)))
+              (when (stringp file)
+                (setq file (file-name-sans-extension
+                            (file-name-nondirectory file))))
+              (define-key map (vector (intern (format "history-%i" i)))
+                `(menu-item ,(format "(%s) %s" file node)
+                            (lambda ()
+                              (interactive)
+                              (dotimes (_ ,i) (call-interactively ',command))))))
+            (setq i (1- i)))
+          (reverse history))
+    (let* ((selection (x-popup-menu e map))
+           (binding (and selection (lookup-key map (vector (car selection))))))
+      (if binding (call-interactively binding)))))
+
+(defun Info-history-back-menu (e)
+  "Pop up the menu with a list of previously visited Info nodes."
+  (interactive "e" Info-mode)
+  (Info-history-menu e "Back in history" Info-history 'Info-history-back))
+
+(defun Info-history-forward-menu (e)
+  "Pop up the menu with a list of Info nodes visited with ‘Info-history-back’."
+  (interactive "e" Info-mode)
+  (Info-history-menu e "Forward in history" Info-history-forward 'Info-history-forward))
 
 (defvar Info-menu-last-node nil)
 ;; Last node the menu was created for.
@@ -4229,7 +4253,7 @@ If FORK is non-nil, it is passed to `Info-goto-node'."
   "Put the name of the current Info node into the kill ring.
 The name of the Info file is prepended to the node name in parentheses.
 With a zero prefix arg, put the name inside a function call to `info'."
-  (interactive "P")
+  (interactive "P" Info-mode)
   (unless Info-current-node
     (user-error "No current Info node"))
   (let ((node (if (stringp Info-current-file)
@@ -4268,8 +4292,36 @@ With a zero prefix arg, put the name inside a function call to `info'."
 ;; We deliberately fontify only ‘..’ quoting, and not `..', because
 ;; the former can be done much more reliably, i.e. without risking
 ;; false positives.
+;; FIXME: It doesn't handle nested quotes.
 (defvar Info-mode-font-lock-keywords
-  '(("‘\\([^’]*\\)’" (1 'Info-quoted))))
+  '(("‘\\([‘’]\\|[^‘’]*\\)’" (1 'Info-quoted))))
+
+;; See info-utils.c:degrade_utf8 in Texinfo for the source of the list
+;; below.
+(defvar info-symbols-and-replacements
+  '((?\‘ . "`")
+    (?\’ . "'")
+    (?\“ . "\"")
+    (?\” . "\"")
+    (?© . "(C)")
+    (?\》 . ">>")
+    (?→ . "->")
+    (?⇒ . "=>")
+    (?⊣ . "-|")
+    (?★ . "-!-")
+    (?↦ . "==>")
+    (?‐ . "-")
+    (?‑ . "-")
+    (?‒ . "-")
+    (?– . "-")
+    (?— . "--")
+    (?− . "-")
+    (?… . "...")
+    (?• . "*")
+    )
+  "A list of Unicode symbols used in Info files and their ASCII translations.
+Each element should be a cons cell with its car a character and its cdr
+a string of ASCII characters.")
 
 ;; Autoload cookie needed by desktop.el
 ;;;###autoload
@@ -4281,7 +4333,7 @@ topics.  Info has commands to follow the references and show you other nodes.
 
 \\<Info-mode-map>\
 \\[Info-help]	Invoke the Info tutorial.
-\\[Info-exit]	Quit Info: reselect previously selected buffer.
+\\[quit-window]	Quit Info: reselect previously selected buffer.
 
 Selecting other nodes:
 \\[Info-mouse-follow-nearest-node]
@@ -4317,6 +4369,7 @@ Moving within a node:
 	  already visible, try to go to the previous menu entry, or up
 	  if there is none.
 \\[beginning-of-buffer]	Go to beginning of node.
+\\[end-of-buffer]	Go to end of node.
 
 Advanced commands:
 \\[Info-search]	Search through this Info file for specified regexp,
@@ -4342,6 +4395,20 @@ Advanced commands:
   (setq case-fold-search t)
   (setq buffer-read-only t)
   (setq Info-tag-table-marker (make-marker))
+  (unless (or (display-multi-font-p)
+              (coding-system-equal
+               (coding-system-base (terminal-coding-system))
+               'utf-8))
+    (dolist (elt info-symbols-and-replacements)
+      (let ((ch (car elt))
+            (repl (cdr elt)))
+        (or (char-displayable-p ch)
+            (aset (or buffer-display-table
+                      (setq buffer-display-table (make-display-table)))
+                  ch (vconcat (mapcar (lambda (c)
+                                        (make-glyph-code c 'homoglyph))
+                                      repl)))))))
+
   (if Info-use-header-line    ; do not override global header lines
       (setq header-line-format
  	    '(:eval (get-text-property (point-min) 'header-line))))
@@ -4354,6 +4421,8 @@ Advanced commands:
   (add-hook 'clone-buffer-hook 'Info-clone-buffer nil t)
   (add-hook 'change-major-mode-hook 'font-lock-defontify nil t)
   (add-hook 'isearch-mode-hook 'Info-isearch-start nil t)
+  (when Info-standalone
+    (add-hook 'quit-window-hook 'save-buffers-kill-emacs nil t))
   (setq-local isearch-search-fun-function #'Info-isearch-search)
   (setq-local isearch-wrap-function #'Info-isearch-wrap)
   (setq-local isearch-push-state-function #'Info-isearch-push-state)
@@ -4383,59 +4452,6 @@ Advanced commands:
 		  (copy-marker (marker-position m)))
 	      (make-marker))))))
 
-(define-obsolete-variable-alias 'Info-edit-map 'Info-edit-mode-map "24.1")
-(defvar Info-edit-mode-map (let ((map (make-sparse-keymap)))
-                             (set-keymap-parent map text-mode-map)
-                             (define-key map "\C-c\C-c" 'Info-cease-edit)
-                             map)
-  "Local keymap used within `e' command of Info.")
-
-(make-obsolete-variable 'Info-edit-mode-map
-			"editing Info nodes by hand is not recommended."
-			"24.4")
-
-;; Info-edit mode is suitable only for specially formatted data.
-(put 'Info-edit-mode 'mode-class 'special)
-
-(define-derived-mode Info-edit-mode text-mode "Info Edit"
-  "Major mode for editing the contents of an Info node.
-Like text mode with the addition of `Info-cease-edit'
-which returns to Info mode for browsing."
-  (setq buffer-read-only nil)
-  (force-mode-line-update)
-  (buffer-enable-undo (current-buffer)))
-
-(make-obsolete 'Info-edit-mode
-	       "editing Info nodes by hand is not recommended." "24.4")
-
-(defun Info-edit ()
-  "Edit the contents of this Info node."
-  (interactive)
-  (Info-edit-mode)
-  (message "%s" (substitute-command-keys
-		 "Editing: Type \\<Info-edit-mode-map>\\[Info-cease-edit] to return to info")))
-
-(put 'Info-edit 'disabled "Editing Info nodes by hand is not recommended.
-This feature will be removed in future.")
-
-(make-obsolete 'Info-edit
-	       "editing Info nodes by hand is not recommended." "24.4")
-
-(defun Info-cease-edit ()
-  "Finish editing Info node; switch back to Info proper."
-  (interactive)
-  ;; Do this first, so nothing has changed if user C-g's at query.
-  (and (buffer-modified-p)
-       (y-or-n-p "Save the file? ")
-       (save-buffer))
-  (Info-mode)
-  (force-mode-line-update)
-  (and (marker-position Info-tag-table-marker)
-       (buffer-modified-p)
-       (message "Tags may have changed.  Use Info-tagify if necessary")))
-
-(make-obsolete 'Info-cease-edit
-	       "editing Info nodes by hand is not recommended." "24.4")
 
 (defvar Info-file-list-for-emacs
   '("ediff" "eudc" "forms" "gnus" "info" ("Info" . "info") ("mh" . "mh-e")
@@ -4791,11 +4807,11 @@ first line or header line, and for breadcrumb links.")
 		    ;; an end of sentence
 		    (skip-syntax-backward " ("))
                   (setq other-tag
-			(cond ((save-match-data (looking-back "\\<see"
-                                                              (- (point) 3)))
+			(cond ((save-match-data (looking-back "\\(^\\| \\)see"
+                                                              (- (point) 4)))
 			       "")
-			      ((save-match-data (looking-back "\\<in"
-                                                              (- (point) 2)))
+			      ((save-match-data (looking-back "\\(^\\| \\)in"
+                                                              (- (point) 3)))
 			       "")
 			      ((memq (char-before) '(nil ?\. ?! ??))
                                "See ")
@@ -5119,9 +5135,8 @@ first line or header line, and for breadcrumb links.")
   "Additional menu-items to add to speedbar frame.")
 
 ;; Make sure our special speedbar major mode is loaded
-(if (featurep 'speedbar)
-    (Info-install-speedbar-variables)
-  (add-hook 'speedbar-load-hook 'Info-install-speedbar-variables))
+(with-eval-after-load 'speedbar
+  (Info-install-speedbar-variables))
 
 ;;; Info hierarchy display method
 ;;;###autoload
@@ -5357,13 +5372,22 @@ completion alternatives to currently visited manuals."
 	found)
     (dolist (buffer blist)
       (with-current-buffer buffer
-	(when (and (eq major-mode 'Info-mode)
+        (when (and (derived-mode-p 'Info-mode)
 		   (stringp Info-current-file)
 		   (string-match manual-re Info-current-file))
 	  (setq found buffer
 		blist nil))))
     (if found
-	(switch-to-buffer found)
+        (let ((window (get-buffer-window found t)))
+          ;; If the buffer is already displayed in a window somewhere,
+          ;; then select that window (and pop its frame to the top).
+          (if window
+              (progn
+                (raise-frame (window-frame window))
+                (select-frame-set-input-focus (window-frame window))
+                (select-window window))
+	    (switch-to-buffer found)))
+      ;; The buffer doesn't exist; create it.
       (info-initialize)
       (info (Info-find-file manual)
 	    (generate-new-buffer-name "*info*")))))
@@ -5372,7 +5396,7 @@ completion alternatives to currently visited manuals."
   (let (names)
     (dolist (buffer (buffer-list))
       (with-current-buffer buffer
-	(and (eq major-mode 'Info-mode)
+        (and (derived-mode-p 'Info-mode)
 	     (stringp Info-current-file)
 	     (not (string= (substring (buffer-name) 0 1) " "))
 	     (push (file-name-sans-extension

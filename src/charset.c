@@ -1,6 +1,6 @@
 /* Basic character set support.
 
-Copyright (C) 2001-2019 Free Software Foundation, Inc.
+Copyright (C) 2001-2021 Free Software Foundation, Inc.
 
 Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
   2005, 2006, 2007, 2008, 2009, 2010, 2011
@@ -415,23 +415,23 @@ load_charset_map (struct charset *charset, struct charset_map_entries *entries, 
 static unsigned
 read_hex (FILE *fp, int lookahead, int *terminator, bool *overflow)
 {
-  int c = lookahead < 0 ? getc_unlocked (fp) : lookahead;
+  int c = lookahead < 0 ? getc (fp) : lookahead;
 
   while (true)
     {
       if (c == '#')
 	do
-	  c = getc_unlocked (fp);
+	  c = getc (fp);
 	while (0 <= c && c != '\n');
       else if (c == '0')
 	{
-	  c = getc_unlocked (fp);
+	  c = getc (fp);
 	  if (c < 0 || c == 'x')
 	    break;
 	}
       if (c < 0)
 	break;
-      c = getc_unlocked (fp);
+      c = getc (fp);
     }
 
   unsigned n = 0;
@@ -440,7 +440,7 @@ read_hex (FILE *fp, int lookahead, int *terminator, bool *overflow)
   if (0 <= c)
     while (true)
       {
-	c = getc_unlocked (fp);
+	c = getc (fp);
 	int digit = char_hexdigit (c);
 	if (digit < 0)
 	  break;
@@ -486,7 +486,7 @@ load_charset_map_from_file (struct charset *charset, Lisp_Object mapfile,
   ptrdiff_t count = SPECPDL_INDEX ();
   record_unwind_protect_nothing ();
   specbind (Qfile_name_handler_alist, Qnil);
-  fd = openp (Vcharset_map_path, mapfile, suffixes, NULL, Qnil, false);
+  fd = openp (Vcharset_map_path, mapfile, suffixes, NULL, Qnil, false, false);
   fp = fd < 0 ? 0 : fdopen (fd, "r");
   if (!fp)
     {
@@ -800,7 +800,9 @@ RANGE is a cons (FROM .  TO), where FROM and TO indicate a range of
 characters contained in CHARSET.
 
 The optional 4th and 5th arguments FROM-CODE and TO-CODE specify the
-range of code points (in CHARSET) of target characters.  */)
+range of code points (in CHARSET) of target characters.  Note that
+these are not character codes, but code points in CHARSET; for the
+difference see `decode-char' and `list-charset-chars'.  */)
   (Lisp_Object function, Lisp_Object charset, Lisp_Object arg, Lisp_Object from_code, Lisp_Object to_code)
 {
   struct charset *cs;
@@ -842,7 +844,7 @@ usage: (define-charset-internal ...)  */)
   /* Charset attr vector.  */
   Lisp_Object attrs;
   Lisp_Object val;
-  EMACS_UINT hash_code;
+  Lisp_Object hash_code;
   struct Lisp_Hash_Table *hash_table = XHASH_TABLE (Vcharset_hash_table);
   int i, j;
   struct charset charset;
@@ -866,15 +868,10 @@ usage: (define-charset-internal ...)  */)
   val = args[charset_arg_code_space];
   for (i = 0, dimension = 0, nchars = 1; ; i++)
     {
-      Lisp_Object min_byte_obj, max_byte_obj;
-      int min_byte, max_byte;
-
-      min_byte_obj = Faref (val, make_fixnum (i * 2));
-      max_byte_obj = Faref (val, make_fixnum (i * 2 + 1));
-      CHECK_RANGED_INTEGER (min_byte_obj, 0, 255);
-      min_byte = XFIXNUM (min_byte_obj);
-      CHECK_RANGED_INTEGER (max_byte_obj, min_byte, 255);
-      max_byte = XFIXNUM (max_byte_obj);
+      Lisp_Object min_byte_obj = Faref (val, make_fixnum (i * 2));
+      Lisp_Object max_byte_obj = Faref (val, make_fixnum (i * 2 + 1));
+      int min_byte = check_integer_range (min_byte_obj, 0, 255);
+      int max_byte = check_integer_range (max_byte_obj, min_byte, 255);
       charset.code_space[i * 4] = min_byte;
       charset.code_space[i * 4 + 1] = max_byte;
       charset.code_space[i * 4 + 2] = max_byte - min_byte + 1;
@@ -887,13 +884,8 @@ usage: (define-charset-internal ...)  */)
     }
 
   val = args[charset_arg_dimension];
-  if (NILP (val))
-    charset.dimension = dimension;
-  else
-    {
-      CHECK_RANGED_INTEGER (val, 1, 4);
-      charset.dimension = XFIXNUM (val);
-    }
+  charset.dimension
+    = !NILP (val) ? check_integer_range (val, 1, 4) : dimension;
 
   charset.code_linear_p
     = (charset.dimension == 1
@@ -979,13 +971,7 @@ usage: (define-charset-internal ...)  */)
     }
 
   val = args[charset_arg_iso_revision];
-  if (NILP (val))
-    charset.iso_revision = -1;
-  else
-    {
-      CHECK_RANGED_INTEGER (val, -1, 63);
-      charset.iso_revision = XFIXNUM (val);
-    }
+  charset.iso_revision = !NILP (val) ? check_integer_range (val, -1, 63) : -1;
 
   val = args[charset_arg_emacs_mule_id];
   if (NILP (val))
@@ -1051,12 +1037,9 @@ usage: (define-charset-internal ...)  */)
       CHECK_FIXNAT (parent_max_code);
       parent_code_offset = Fnth (make_fixnum (3), val);
       CHECK_FIXNUM (parent_code_offset);
-      val = make_uninit_vector (4);
-      ASET (val, 0, make_fixnum (parent_charset->id));
-      ASET (val, 1, parent_min_code);
-      ASET (val, 2, parent_max_code);
-      ASET (val, 3, parent_code_offset);
-      ASET (attrs, charset_subset, val);
+      ASET (attrs, charset_subset,
+	    CALLN (Fvector, make_fixnum (parent_charset->id),
+		   parent_min_code, parent_max_code, parent_code_offset));
 
       charset.method = CHARSET_METHOD_SUBSET;
       /* Here, we just copy the parent's fast_map.  It's not accurate,
@@ -1090,8 +1073,7 @@ usage: (define-charset-internal ...)  */)
 	      car_part = XCAR (elt);
 	      cdr_part = XCDR (elt);
 	      CHECK_CHARSET_GET_ID (car_part, this_id);
-	      CHECK_TYPE_RANGED_INTEGER (int, cdr_part);
-	      offset = XFIXNUM (cdr_part);
+	      offset = check_integer_range (cdr_part, INT_MIN, INT_MAX);
 	    }
 	  else
 	    {
@@ -1477,7 +1459,7 @@ string_xstring_p (Lisp_Object string)
 
   while (p < endp)
     {
-      int c = STRING_CHAR_ADVANCE (p);
+      int c = string_char_advance (&p);
 
       if (c >= 0x100)
 	return 2;
@@ -1521,7 +1503,7 @@ find_charsets_in_text (const unsigned char *ptr, ptrdiff_t nchars,
     {
       while (ptr < pend)
 	{
-	  int c = STRING_CHAR_ADVANCE (ptr);
+	  int c = string_char_advance (&ptr);
 	  struct charset *charset;
 
 	  if (!NILP (table))
@@ -2292,14 +2274,18 @@ init_charset (void)
     {
       /* This used to be non-fatal (dir_warning), but it should not
          happen, and if it does sooner or later it will cause some
-         obscure problem (eg bug#6401), so better abort.  */
-      fprintf (stderr, "Error: charsets directory not found:\n\
-%s\n\
-Emacs will not function correctly without the character map files.\n%s\
-Please check your installation!\n",
-               SDATA (tempdir),
-               egetenv("EMACSDATA") ? "The EMACSDATA environment \
-variable is set, maybe it has the wrong value?\n" : "");
+         obscure problem (eg bug#6401), so better exit.  */
+      fprintf (stderr,
+	       ("Error: %s: %s\n"
+		"Emacs will not function correctly "
+		"without the character map files.\n"
+		"%s"
+		"Please check your installation!\n"),
+	       SDATA (tempdir), strerror (errno),
+	       (egetenv ("EMACSDATA")
+		? ("The EMACSDATA environment variable is set.  "
+		   "Maybe it has the wrong value?\n")
+		: ""));
       exit (1);
     }
 

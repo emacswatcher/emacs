@@ -1,6 +1,6 @@
 ;;; rng-cmpct.el --- parsing of RELAX NG Compact Syntax schemas  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2003, 2007-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2003, 2007-2021 Free Software Foundation, Inc.
 
 ;; Author: James Clark
 ;; Keywords: wp, hypermedia, languages, XML, RelaxNG
@@ -26,7 +26,7 @@
 ;; specified in rng-pttrn.el.
 ;;
 ;; RELAX NG Compact Syntax is specified by
-;;    http://relaxng.org/compact.html
+;;    https://relaxng.org/compact.html
 ;;
 ;; This file uses the prefix "rng-c-".
 
@@ -123,8 +123,7 @@ Return a pattern."
   (set-buffer-multibyte t)
   (set-syntax-table rng-c-syntax-table))
 
-(defvar rng-c-current-token nil)
-(make-variable-buffer-local 'rng-c-current-token)
+(defvar-local rng-c-current-token nil)
 
 (defun rng-c-advance ()
   (cond ((looking-at rng-c-token-re)
@@ -334,11 +333,9 @@ OVERRIDE is either nil, require or t."
 
 ;;; Parsing
 
-(defvar rng-c-escape-positions nil)
-(make-variable-buffer-local 'rng-c-escape-positions)
+(defvar-local rng-c-escape-positions nil)
 
-(defvar rng-c-file-name nil)
-(make-variable-buffer-local 'rng-c-file-name)
+(defvar-local rng-c-file-name nil)
 
 (defvar rng-c-file-index nil)
 
@@ -369,7 +366,7 @@ OVERRIDE is either nil, require or t."
     (and pos
 	 (rng-c-error "Nul character found (binary file?)")))
   (let ((offset 0))
-    (while (re-search-forward "\\\\x+{\\([0-9a-fA-F]+\\)}"
+    (while (re-search-forward "\\\\x+{\\([[:xdigit:]]+\\)}"
 			      (point-max)
 			      t)
       (let* ((ch (decode-char 'ucs (string-to-number (match-string 1) 16))))
@@ -925,4 +922,4 @@ Current token after parse is token following ]."
 
 (provide 'rng-cmpct)
 
-;;; rng-cmpct.el
+;;; rng-cmpct.el ends here

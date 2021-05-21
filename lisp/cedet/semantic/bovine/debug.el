@@ -1,6 +1,6 @@
-;;; semantic/bovine/debug.el --- Debugger support for bovinator
+;;; semantic/bovine/debug.el --- Debugger support for bovinator  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2003, 2009-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2003, 2009-2021 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -123,7 +123,7 @@ Argument CONDITION is the thrown error condition."
 			      frame)
     frame))
 
-(cl-defmethod semantic-debug-frame-highlight ((frame semantic-bovine-debug-error-frame))
+(cl-defmethod semantic-debug-frame-highlight ((_frame semantic-bovine-debug-error-frame))
   "Highlight a frame from an action."
   ;; How do I get the location of the action in the source buffer?
   )

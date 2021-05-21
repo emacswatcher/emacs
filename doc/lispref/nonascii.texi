@@ -1,6 +1,6 @@
 @c -*- mode: texinfo; coding: utf-8 -*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1998-1999, 2001-2019 Free Software Foundation, Inc.
+@c Copyright (C) 1998--1999, 2001--2021 Free Software Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Non-ASCII Characters
 @chapter Non-@acronym{ASCII} Characters
@@ -301,7 +301,7 @@ character, and returns that character.  If @var{char} is neither
 @end defun
 
 @defun unibyte-char-to-multibyte char
-This convert the unibyte character @var{char} to a multibyte
+This converts the unibyte character @var{char} to a multibyte
 character, assuming @var{char} is either @acronym{ASCII} or raw 8-bit
 byte.
 @end defun
@@ -453,13 +453,13 @@ during text processing and display.  Thus, character properties are an
 important part of specifying the character's semantics.
 
 @c FIXME: Use the latest URI of this chapter?
-@c http://www.unicode.org/versions/latest/ch04.pdf
+@c https://www.unicode.org/versions/latest/ch04.pdf
   On the whole, Emacs follows the Unicode Standard in its implementation
 of character properties.  In particular, Emacs supports the
-@uref{http://www.unicode.org/reports/tr23/, Unicode Character Property
+@uref{https://www.unicode.org/reports/tr23/, Unicode Character Property
 Model}, and the Emacs character property database is derived from the
 Unicode Character Database (@acronym{UCD}).  See the
-@uref{http://www.unicode.org/versions/latest/ch04.pdf, Character
+@uref{https://www.unicode.org/versions/Unicode12.1.0/ch04.pdf, Character
 Properties chapter of the Unicode Standard}, for a detailed
 description of Unicode character properties and their meaning.  This
 section assumes you are already familiar with that chapter of the
@@ -550,8 +550,8 @@ characters whose @code{Numeric_Type} is @samp{Numeric}.  The value of
 this property is a number.  Examples of characters that have this
 property include fractions, subscripts, superscripts, Roman numerals,
 currency numerators, and encircled numbers.  For example, the value of
-this property for the character @code{U+2155} (@sc{vulgar fraction one
-fifth}) is @code{0.2}.  For characters that don't have any numeric
+this property for the character U+2155 @sc{vulgar fraction one
+fifth} is @code{0.2}.  For characters that don't have any numeric
 value, and for unassigned codepoints, the value is @code{nil}, which
 means @acronym{NaN}.
 
@@ -622,23 +622,24 @@ is @code{nil}, which means the character itself.
 @item special-uppercase
 Corresponds to Unicode language- and context-independent special upper-casing
 rules.  The value of this property is a string (which may be empty).  For
-example mapping for @code{U+00DF} (@sc{latin small letter sharp s}) is
+example mapping for U+00DF @sc{latin small letter sharp s} is
 @code{"SS"}.  For characters with no special mapping, the value is @code{nil}
 which means @code{uppercase} property needs to be consulted instead.
 
 @item special-lowercase
-Corresponds to Unicode language- and context-independent special lower-casing
-rules.  The value of this property is a string (which may be empty).  For
-example mapping for @code{U+0130} (@sc{latin capital letter i with dot above})
-the value is @code{"i\u0307"} (i.e. 2-character string consisting of @sc{latin
-small letter i} followed by @sc{combining dot above}).  For characters with no
-special mapping, the value is @code{nil} which means @code{lowercase} property
-needs to be consulted instead.
+Corresponds to Unicode language- and context-independent special
+lower-casing rules.  The value of this property is a string (which may
+be empty).  For example mapping for U+0130 @sc{latin capital letter i
+with dot above} the value is @code{"i\u0307"} (i.e. 2-character string
+consisting of @sc{latin small letter i} followed by U+0307
+@sc{combining dot above}).  For characters with no special mapping,
+the value is @code{nil} which means @code{lowercase} property needs to
+be consulted instead.
 
 @item special-titlecase
 Corresponds to Unicode unconditional special title-casing rules.  The value of
 this property is a string (which may be empty).  For example mapping for
-@code{U+FB01} (@sc{latin small ligature fi}) the value is @code{"Fi"}.  For
+U+FB01 @sc{latin small ligature fi} the value is @code{"Fi"}.  For
 characters with no special mapping, the value is @code{nil} which means
 @code{titlecase} property needs to be consulted instead.
 @end table
@@ -675,7 +676,7 @@ This function returns the value of @var{char}'s @var{propname} property.
 @end group
 @group
 (get-char-code-property ?\( 'paired-bracket)
-     @result{} 41  ;; closing parenthesis
+     @result{} 41  ; closing parenthesis
 @end group
 @group
 (get-char-code-property ?\) 'bracket-type)
@@ -721,7 +722,10 @@ The value of this variable is a char-table that specifies, for each
 character, a symbol whose name is the script to which the character
 belongs, according to the Unicode Standard classification of the
 Unicode code space into script-specific blocks.  This char-table has a
-single extra slot whose value is the list of all script symbols.
+single extra slot whose value is the list of all script symbols.  Note
+that Emacs' classification of characters into scripts is not a 1-for-1
+reflection of the Unicode standard, e.g. there is no @samp{symbol}
+script in Unicode.
 @end defvar
 
 @defvar char-width-table
@@ -951,13 +955,13 @@ translating the result.
 
 @defvar standard-translation-table-for-decode
 This is the default translation table for decoding.  If a coding
-systems specifies its own translation tables, the table that is the
+system specifies its own translation tables, the table that is the
 value of this variable, if non-@code{nil}, is applied after them.
 @end defvar
 
 @defvar standard-translation-table-for-encode
 This is the default translation table for encoding.  If a coding
-systems specifies its own translation tables, the table that is the
+system specifies its own translation tables, the table that is the
 value of this variable, if non-@code{nil}, is applied after them.
 @end defvar
 
@@ -1049,7 +1053,7 @@ is like @code{undecided}, but it prefers to choose @code{utf-8} when
 possible.
 
   In general, a coding system doesn't guarantee roundtrip identity:
-decoding a byte sequence using coding system, then encoding the
+decoding a byte sequence using a coding system, then encoding the
 resulting text in the same coding system, can produce a different byte
 sequence.  But some coding systems do guarantee that the byte sequence
 will be the same as what you originally decoded.  Here are a few
@@ -1254,7 +1258,7 @@ name or @code{nil}.
 @defun check-coding-system coding-system
 This function checks the validity of @var{coding-system}.  If that is
 valid, it returns @var{coding-system}.  If @var{coding-system} is
-@code{nil}, the function return @code{nil}.  For any other values, it
+@code{nil}, the function returns @code{nil}.  For any other values, it
 signals an error whose @code{error-symbol} is @code{coding-system-error}
 (@pxref{Signaling Errors, signal}).
 @end defun
@@ -1378,7 +1382,7 @@ operates on the contents of @var{string} instead of bytes in the buffer.
 @end defun
 
 @cindex null bytes, and decoding text
-@defvar inhibit-nul-byte-detection
+@defvar inhibit-null-byte-detection
 If this variable has a non-@code{nil} value, null bytes are ignored
 when detecting the encoding of a region or a string.  This allows the
 encoding of text that contains null bytes to be correctly detected,
@@ -1820,8 +1824,8 @@ priority list for coding systems, thus making their priority higher
 than all the rest.
 @end defun
 
-@defmac with-coding-priority coding-systems &rest body@dots{}
-This macro execute @var{body}, like @code{progn} does
+@defmac with-coding-priority coding-systems &rest body
+This macro executes @var{body}, like @code{progn} does
 (@pxref{Sequencing, progn}), with @var{coding-systems} at the front of
 the priority list for coding systems.  @var{coding-systems} should be
 a list of coding systems to prefer during execution of @var{body}.
@@ -1912,7 +1916,10 @@ the command returns the decoded text as a multibyte string without
 inserting it.
 
 If decoded text is inserted in some buffer, this command returns the
-length of the decoded text.
+length of the decoded text.  If that buffer is a unibyte buffer
+(@pxref{Selecting a Representation}), the internal representation of
+the decoded text (@pxref{Text Representations}) is inserted into the
+buffer as individual bytes.
 
 This command puts a @code{charset} text property on the decoded text.
 The value of the property states the character set used to decode the
@@ -1931,7 +1938,9 @@ contains 8-bit bytes in their multibyte form).
 
 If optional argument @var{buffer} specifies a buffer, the decoded text
 is inserted in that buffer after point (point does not move).  In this
-case, the return value is the length of the decoded text.
+case, the return value is the length of the decoded text.  If that
+buffer is a unibyte buffer, the internal representation of the decoded
+text is inserted into it as individual bytes.
 
 @cindex @code{charset}, text property
 This function puts a @code{charset} text property on the decoded text.

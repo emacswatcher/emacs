@@ -1,6 +1,6 @@
-;;; gnus-range.el --- range and sequence functions for Gnus
+;;; gnus-range.el --- range and sequence functions for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1996-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2021 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news
@@ -28,7 +28,7 @@
 
 (defsubst gnus-range-normalize (range)
   "Normalize RANGE.
-If RANGE is a single range, return (RANGE). Otherwise, return RANGE."
+If RANGE is a single range, return (RANGE).  Otherwise, return RANGE."
   (if (listp (cdr-safe range)) range (list range)))
 
 (defun gnus-last-element (list)
@@ -42,13 +42,8 @@ If RANGE is a single range, return (RANGE). Otherwise, return RANGE."
 
 (defun gnus-set-difference (list1 list2)
   "Return a list of elements of LIST1 that do not appear in LIST2."
-  (let ((hash2 (make-hash-table :test 'eq))
-        (result nil))
-    (dolist (elt list2) (puthash elt t hash2))
-    (dolist (elt list1)
-      (unless (gethash elt hash2)
-        (setq result (cons elt result))))
-    (nreverse result)))
+  (declare (obsolete seq-difference "28.1"))
+  (seq-difference list1 list2 #'eq))
 
 (defun gnus-range-nconcat (&rest ranges)
   "Return a range comprising all the RANGES, which are pre-sorted.
@@ -87,7 +82,7 @@ Both ranges must be in ascending order."
   (setq range2 (gnus-range-normalize range2))
   (let* ((new-range (cons nil (copy-sequence range1)))
          (r new-range)
-         (safe t))
+         ) ;; (safe t)
     (while (cdr r)
       (let* ((r1 (cadr r))
              (r2 (car range2))
@@ -179,12 +174,8 @@ Both lists have to be sorted over <."
 
 ;;;###autoload
 (defun gnus-intersection (list1 list2)
-  (let ((result nil))
-    (while list2
-      (when (memq (car list2) list1)
-	(setq result (cons (car list2) result)))
-      (setq list2 (cdr list2)))
-    result))
+  (declare (obsolete seq-intersection "28.1"))
+  (nreverse (seq-intersection list1 list2 #'eq)))
 
 ;;;###autoload
 (defun gnus-sorted-intersection (list1 list2)

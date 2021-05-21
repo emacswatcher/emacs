@@ -1,9 +1,8 @@
-;;; vt-control.el --- Common VTxxx control functions
+;;; vt-control.el --- Common VTxxx control functions  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1993-1994, 2001-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1994, 2001-2021 Free Software Foundation, Inc.
 
 ;; Author: Rob Riepel <riepel@networking.stanford.edu>
-;; Maintainer: Rob Riepel <riepel@networking.stanford.edu>
 ;; Keywords: terminals
 
 ;; This file is part of GNU Emacs.
@@ -84,26 +83,24 @@
 
 (defun vt-keypad-on (&optional tell)
   "Turn on the VT applications keypad."
-  (interactive)
+  (interactive "p")
   (send-string-to-terminal "\e=")
   (setq vt-applications-keypad-p t)
-  (if (or tell (called-interactively-p 'interactive))
-      (message "Applications keypad enabled.")))
+  (if tell (message "Applications keypad enabled.")))
 
 (defun vt-keypad-off (&optional tell)
   "Turn off the VT applications keypad."
   (interactive "p")
   (send-string-to-terminal "\e>")
   (setq vt-applications-keypad-p nil)
-  (if (or tell (called-interactively-p 'interactive))
-      (message "Applications keypad disabled.")))
+  (if tell (message "Applications keypad disabled.")))
 
-(defun vt-numlock nil
+(defun vt-numlock (&optional tell)
   "Toggle VT application keypad on and off."
-  (interactive)
+  (interactive "p")
   (if vt-applications-keypad-p
-      (vt-keypad-off (called-interactively-p 'interactive))
-    (vt-keypad-on (called-interactively-p 'interactive))))
+      (vt-keypad-off tell)
+    (vt-keypad-on tell)))
 
 (provide 'vt-control)
 

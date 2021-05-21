@@ -1,8 +1,8 @@
 ;;; flymake-proc.el --- Flymake backend for external tools  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2003-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2021 Free Software Foundation, Inc.
 
-;; Author:  Pavel Kobyakov <pk_at_work@yahoo.com>
+;; Author: Pavel Kobyakov <pk_at_work@yahoo.com>
 ;; Maintainer: João Távora <joaotavora@gmail.com>
 ;; Version: 1.0
 ;; Keywords: c languages tools
@@ -37,7 +37,7 @@
 ;;; Bugs/todo:
 
 ;; - Only uses "Makefile", not "makefile" or "GNUmakefile"
-;;   (from http://bugs.debian.org/337339).
+;;   (from https://bugs.debian.org/337339).
 
 ;;; Code:
 
@@ -120,8 +120,10 @@ This is an alist with elements of the form:
   REGEXP INIT [CLEANUP [NAME]]
 REGEXP is a regular expression that matches a file name.
 INIT is the init function to use.
-CLEANUP is the cleanup function to use, default `flymake-proc-simple-cleanup'.
-NAME is the file name function to use, default `flymake-proc-get-real-file-name'."
+CLEANUP is the cleanup function to use, default
+  `flymake-proc-simple-cleanup'.
+NAME is the file name function to use, default
+  `flymake-proc-get-real-file-name'."
   :group 'flymake
   :type '(alist :key-type (regexp :tag "File regexp")
                 :value-type
@@ -429,22 +431,21 @@ instead of reading master file from disk."
 
 (defun flymake-proc--read-file-to-temp-buffer (file-name)
   "Insert contents of FILE-NAME into newly created temp buffer."
-  (let* ((temp-buffer (get-buffer-create (generate-new-buffer-name (concat "flymake:" (file-name-nondirectory file-name))))))
-    (with-current-buffer temp-buffer
-      (insert-file-contents file-name))
-    temp-buffer))
+  (with-current-buffer (generate-new-buffer
+                        (concat "flymake:" (file-name-nondirectory file-name)))
+    (insert-file-contents file-name)
+    (current-buffer)))
 
 (defun flymake-proc--copy-buffer-to-temp-buffer (buffer)
   "Copy contents of BUFFER into newly created temp buffer."
-  (with-current-buffer
-      (get-buffer-create (generate-new-buffer-name
-                          (concat "flymake:" (buffer-name buffer))))
+  (with-current-buffer (generate-new-buffer
+                        (concat "flymake:" (buffer-name buffer)))
     (insert-buffer-substring buffer)
     (current-buffer)))
 
 (defun flymake-proc--check-include (source-file-name inc-name include-dirs)
   "Check if SOURCE-FILE-NAME can be found in include path.
-Return t if it can be found via include path using INC-NAME."
+Return non-nil if it can be found via include path using INC-NAME."
   (if (file-name-absolute-p inc-name)
       (flymake-proc--same-files source-file-name inc-name)
     (while (and include-dirs
@@ -458,7 +459,7 @@ Return t if it can be found via include path using INC-NAME."
 
 (defun flymake-proc--find-buffer-for-file (file-name)
   "Check if there exists a buffer visiting FILE-NAME.
-Return t if so, nil if not."
+Return the buffer if it exists, nil if not."
   (let ((buffer-name (get-file-buffer file-name)))
     (if buffer-name
 	(get-buffer buffer-name))))
@@ -654,7 +655,14 @@ Create parent directories as needed."
                    (let ((cleanup-f (flymake-proc--get-cleanup-function
                                      (buffer-file-name))))
                      (flymake-log 3 "cleaning up using %s" cleanup-f)
-                     (funcall cleanup-f))))
+                     ;; Make cleanup-f see the temporary file names
+                     ;; created by its corresponding init function
+                     ;; (bug#31981).
+                     (let ((flymake-proc--temp-source-file-name
+                            (process-get proc 'flymake-proc--temp-source-file-name))
+                           (flymake-proc--temp-master-file-name
+                            (process-get proc 'flymake-proc--temp-master-file-name)))
+                       (funcall cleanup-f)))))
                (kill-buffer output-buffer)))))))
 
 (defun flymake-proc--panic (problem explanation)
@@ -824,6 +832,10 @@ can also be executed interactively independently of
                   (process-put proc 'flymake-proc--output-buffer
                                (generate-new-buffer
                                 (format " *flymake output for %s*" (current-buffer))))
+                  (process-put proc 'flymake-proc--temp-source-file-name
+                               flymake-proc--temp-source-file-name)
+                  (process-put proc 'flymake-proc--temp-master-file-name
+                               flymake-proc--temp-master-file-name)
                   (setq flymake-proc--current-process proc)
                   (flymake-log 2 "started process %d, command=%s, dir=%s"
                                (process-id proc) (process-command proc)
@@ -840,7 +852,7 @@ can also be executed interactively independently of
   (interactive (list "Interrupted by user"))
   (dolist (buf (buffer-list))
     (with-current-buffer buf
-      (let (p flymake-proc--current-process)
+      (let ((p flymake-proc--current-process))
         (when (process-live-p p)
           (kill-process p)
           (process-put p 'flymake-proc--interrupted reason)
@@ -865,6 +877,7 @@ can also be executed interactively independently of
   (let* ((ext (file-name-extension file-name))
 	 (temp-name (file-truename
 		     (concat (file-name-sans-extension file-name)
+                             "_" (format-time-string "%H%M%S%N")
 			     "_" prefix
 			     (and ext (concat "." ext))))))
     (flymake-log 3 "create-temp-inplace: file=%s temp=%s" file-name temp-name)

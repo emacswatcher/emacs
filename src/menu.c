@@ -1,6 +1,6 @@
 /* Platform-independent code for terminal communications.
 
-Copyright (C) 1986, 1988, 1993-1994, 1996, 1999-2019 Free Software
+Copyright (C) 1986, 1988, 1993-1994, 1996, 1999-2021 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -19,7 +19,6 @@ You should have received a copy of the GNU General Public License
 along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <config.h>
-#include <stdio.h>
 #include <limits.h> /* for INT_MAX */
 
 #include "lisp.h"
@@ -687,7 +686,7 @@ digest_single_submenu (int start, int end, bool top_level_items)
 
 		  ASET (menu_items, i + MENU_ITEMS_PANE_NAME, pane_name);
 		}
-#elif defined (USE_LUCID) && defined (HAVE_XFT)
+#elif defined (USE_LUCID) && (defined USE_CAIRO || defined HAVE_XFT)
 	      if (STRINGP (pane_name))
 		{
 		  pane_name = ENCODE_UTF_8 (pane_name);
@@ -1037,9 +1036,7 @@ menu_item_width (const unsigned char *str)
 
   for (len = 0, p = str; *p; )
     {
-      int ch_len;
-      int ch = STRING_CHAR_AND_LENGTH (p, ch_len);
-
+      int ch_len, ch = string_char_and_length (p, &ch_len);
       len += CHARACTER_WIDTH (ch);
       p += ch_len;
     }
@@ -1131,6 +1128,7 @@ x_popup_menu_1 (Lisp_Object position, Lisp_Object menu)
     /* Decode the first argument: find the window and the coordinates.  */
     if (EQ (position, Qt)
 	|| (CONSP (position) && (EQ (XCAR (position), Qmenu_bar)
+				 || EQ (XCAR (position), Qtab_bar)
 				 || EQ (XCAR (position), Qtool_bar))))
       {
 	get_current_pos_p = 1;
@@ -1253,18 +1251,16 @@ x_popup_menu_1 (Lisp_Object position, Lisp_Object menu)
 	 but I don't want to make one now.  */
       CHECK_WINDOW (window);
 
-    CHECK_RANGED_INTEGER (x,
-			  (xpos < INT_MIN - MOST_NEGATIVE_FIXNUM
-			   ? (EMACS_INT) INT_MIN - xpos
-			   : MOST_NEGATIVE_FIXNUM),
-			  INT_MAX - xpos);
-    CHECK_RANGED_INTEGER (y,
-			  (ypos < INT_MIN - MOST_NEGATIVE_FIXNUM
-			   ? (EMACS_INT) INT_MIN - ypos
-			   : MOST_NEGATIVE_FIXNUM),
-			  INT_MAX - ypos);
-    xpos += XFIXNUM (x);
-    ypos += XFIXNUM (y);
+    xpos += check_integer_range (x,
+				 (xpos < INT_MIN - MOST_NEGATIVE_FIXNUM
+				  ? (EMACS_INT) INT_MIN - xpos
+				  : MOST_NEGATIVE_FIXNUM),
+				 INT_MAX - xpos);
+    ypos += check_integer_range (y,
+				 (ypos < INT_MIN - MOST_NEGATIVE_FIXNUM
+				  ? (EMACS_INT) INT_MIN - ypos
+				  : MOST_NEGATIVE_FIXNUM),
+				 INT_MAX - ypos);
 
     XSETFRAME (Vmenu_updating_frame, f);
   }
@@ -1507,6 +1503,7 @@ for instance using the window manager, then this produces a quit and
   /* Decode the first argument: find the window or frame to use.  */
   if (EQ (position, Qt)
       || (CONSP (position) && (EQ (XCAR (position), Qmenu_bar)
+			       || EQ (XCAR (position), Qtab_bar)
 			       || EQ (XCAR (position), Qtool_bar))))
     window = selected_window;
   else if (CONSP (position))

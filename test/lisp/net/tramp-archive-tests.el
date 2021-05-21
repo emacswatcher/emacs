@@ -1,21 +1,27 @@
 ;;; tramp-archive-tests.el --- Tests of file archive access  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2017-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2021 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 
-;; This program is free software: you can redistribute it and/or
+;; This file is part of GNU Emacs.
+;;
+;; GNU Emacs is free software: you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
 ;; published by the Free Software Foundation, either version 3 of the
 ;; License, or (at your option) any later version.
 ;;
-;; This program is distributed in the hope that it will be useful, but
+;; GNU Emacs is distributed in the hope that it will be useful, but
 ;; WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 ;; General Public License for more details.
 ;;
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see `https://www.gnu.org/licenses/'.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Commentary:
+
+;; A testsuite for testing file archives.
 
 ;;; Code:
 
@@ -23,42 +29,76 @@
 ;; tests in tramp-tests.el.
 
 (require 'ert)
+(require 'ert-x)
 (require 'tramp-archive)
 (defvar tramp-copy-size-limit)
 (defvar tramp-persistency-file-name)
 
-(defconst tramp-archive-test-resource-directory
-  (let ((default-directory
-	  (if load-in-progress
-	      (file-name-directory load-file-name)
-	    default-directory)))
-    (cond
-     ((file-accessible-directory-p (expand-file-name "resources"))
-      (expand-file-name "resources"))
-     ((file-accessible-directory-p (expand-file-name "tramp-archive-resources"))
-      (expand-file-name "tramp-archive-resources"))))
-  "The resources directory test files are located in.")
+;; `ert-resource-file' was introduced in Emacs 28.1.
+(unless (macrop 'ert-resource-file)
+  (eval-and-compile
+    (defvar ert-resource-directory-format "%s-resources/"
+      "Format for `ert-resource-directory'.")
+    (defvar ert-resource-directory-trim-left-regexp ""
+      "Regexp for `string-trim' (left) used by `ert-resource-directory'.")
+    (defvar ert-resource-directory-trim-right-regexp "\\(-tests?\\)?\\.el"
+      "Regexp for `string-trim' (right) used by `ert-resource-directory'.")
 
-(defconst tramp-archive-test-file-archive
-  (file-truename
-   (expand-file-name "foo.tar.gz" tramp-archive-test-resource-directory))
+    (defmacro ert-resource-directory ()
+      "Return absolute file name of the resource directory for this file.
+
+The path to the resource directory is the \"resources\" directory
+in the same directory as the test file.
+
+If that directory doesn't exist, use the directory named like the
+test file but formatted by `ert-resource-directory-format' and trimmed
+using `string-trim' with arguments
+`ert-resource-directory-trim-left-regexp' and
+`ert-resource-directory-trim-right-regexp'.  The default values mean
+that if called from a test file named \"foo-tests.el\", return
+the absolute file name for \"foo-resources\"."
+      `(let* ((testfile ,(or (bound-and-true-p byte-compile-current-file)
+                             (and load-in-progress load-file-name)
+                             buffer-file-name))
+              (default-directory (file-name-directory testfile)))
+	 (file-truename
+	  (if (file-accessible-directory-p "resources/")
+              (expand-file-name "resources/")
+            (expand-file-name
+             (format
+	      ert-resource-directory-format
+              (string-trim testfile
+			   ert-resource-directory-trim-left-regexp
+			   ert-resource-directory-trim-right-regexp)))))))
+
+    (defmacro ert-resource-file (file)
+      "Return file name of resource file named FILE.
+A resource file is in the resource directory as per
+`ert-resource-directory'."
+      `(expand-file-name ,file (ert-resource-directory)))))
+
+(defconst tramp-archive-test-file-archive (ert-resource-file "foo.tar.gz")
   "The test file archive.")
+
+(defun tramp-archive-test-file-archive-hexlified ()
+    "Return hexlified `tramp-archive-test-file-archive'.
+Do not hexlify \"/\".  This hexlified string is used in `file:///' URLs."
+  (let* ((url-unreserved-chars (cons ?/ url-unreserved-chars)))
+    (url-hexify-string tramp-archive-test-file-archive)))
 
 (defconst tramp-archive-test-archive
   (file-name-as-directory tramp-archive-test-file-archive)
   "The test archive.")
 
 (defconst tramp-archive-test-directory
-  (file-truename
-   (expand-file-name "foo.iso" tramp-archive-test-resource-directory))
+  (file-truename (ert-resource-file "foo.iso"))
   "A directory file name, which looks like an archive.")
 
 (setq password-cache-expiry nil
-      tramp-verbose 0
       tramp-cache-read-persistent-data t ;; For auth-sources.
       tramp-copy-size-limit nil
-      tramp-message-show-message nil
-      tramp-persistency-file-name nil)
+      tramp-persistency-file-name nil
+      tramp-verbose 0)
 
 (defun tramp-archive--test-make-temp-name ()
   "Return a temporary file name for test.
@@ -157,89 +197,96 @@ variables, so we check the Emacs version directly."
   "Check archive file name components."
   (skip-unless tramp-archive-enabled)
 
-  (with-parsed-tramp-archive-file-name tramp-archive-test-archive nil
-    (should (string-equal method tramp-archive-method))
-    (should-not user)
-    (should-not domain)
-    (should
-     (string-equal
-      host
-      (file-remote-p
-       (tramp-archive-gvfs-file-name tramp-archive-test-archive) 'host)))
-    (should
-     (string-equal
-      host
-      (url-hexify-string (concat "file://" tramp-archive-test-file-archive))))
-    (should-not port)
-    (should (string-equal localname "/"))
-    (should (string-equal archive tramp-archive-test-file-archive)))
+  ;; Suppress method name check.
+  (let ((non-essential t))
+    (with-parsed-tramp-archive-file-name tramp-archive-test-archive nil
+      (should (string-equal method tramp-archive-method))
+      (should-not user)
+      (should-not domain)
+      (should
+       (string-equal
+	host
+	(file-remote-p
+	 (tramp-archive-gvfs-file-name tramp-archive-test-archive) 'host)))
+      (should
+       (string-equal
+	host
+	(url-hexify-string
+	 (concat "file://" (tramp-archive-test-file-archive-hexlified)))))
+      (should-not port)
+      (should (string-equal localname "/"))
+      (should (string-equal archive tramp-archive-test-file-archive)))
 
-  ;; Localname.
-  (with-parsed-tramp-archive-file-name
-      (concat tramp-archive-test-archive "foo") nil
-    (should (string-equal method tramp-archive-method))
-    (should-not user)
-    (should-not domain)
-    (should
-     (string-equal
-      host
-      (file-remote-p
-       (tramp-archive-gvfs-file-name tramp-archive-test-archive) 'host)))
-   (should
-     (string-equal
-      host
-      (url-hexify-string (concat "file://" tramp-archive-test-file-archive))))
-    (should-not port)
-    (should (string-equal localname "/foo"))
-    (should (string-equal archive tramp-archive-test-file-archive)))
+    ;; Localname.
+    (with-parsed-tramp-archive-file-name
+	(concat tramp-archive-test-archive "foo") nil
+      (should (string-equal method tramp-archive-method))
+      (should-not user)
+      (should-not domain)
+      (should
+       (string-equal
+	host
+	(file-remote-p
+	 (tramp-archive-gvfs-file-name tramp-archive-test-archive) 'host)))
+      (should
+       (string-equal
+	host
+	(url-hexify-string
+	 (concat "file://" (tramp-archive-test-file-archive-hexlified)))))
+      (should-not port)
+      (should (string-equal localname "/foo"))
+      (should (string-equal archive tramp-archive-test-file-archive)))
 
-  ;; File archive in file archive.
-  (let* ((tramp-archive-test-file-archive
-	  (concat tramp-archive-test-archive "baz.tar"))
-	 (tramp-archive-test-archive
-	  (file-name-as-directory tramp-archive-test-file-archive))
-	 (tramp-methods (cons `(,tramp-archive-method) tramp-methods))
-	 (tramp-gvfs-methods tramp-archive-all-gvfs-methods))
-    (unwind-protect
-	(with-parsed-tramp-archive-file-name
-	    (expand-file-name "bar" tramp-archive-test-archive) nil
-	  (should (string-equal method tramp-archive-method))
-	  (should-not user)
-	  (should-not domain)
-	  (should
-	   (string-equal
-	    host
-	    (file-remote-p
-	     (tramp-archive-gvfs-file-name tramp-archive-test-archive) 'host)))
-	  ;; We reimplement the logic of tramp-archive.el here.  Don't
-	  ;; know, whether it is worth the test.
-	  (should
-	   (string-equal
-	    host
-	    (url-hexify-string
-	     (concat
-	      (tramp-gvfs-url-file-name
-	       (tramp-make-tramp-file-name
-		tramp-archive-method
-		;; User and Domain.
-		nil nil
-		;; Host.
-		(url-hexify-string
-		 (concat
-		  "file://"
-		  ;; `directory-file-name' does not leave file archive
-		  ;; boundaries.  So we must cut the trailing slash
-		  ;; ourselves.
-		  (substring
-		   (file-name-directory tramp-archive-test-file-archive) 0 -1)))
-		nil "/"))
-	      (file-name-nondirectory tramp-archive-test-file-archive)))))
-	  (should-not port)
-	  (should (string-equal localname "/bar"))
-	  (should (string-equal archive tramp-archive-test-file-archive)))
+    ;; File archive in file archive.
+    (let* ((tramp-archive-test-file-archive
+	    (concat tramp-archive-test-archive "baz.tar"))
+	   (tramp-archive-test-archive
+	    (file-name-as-directory tramp-archive-test-file-archive))
+	   (tramp-methods (cons `(,tramp-archive-method) tramp-methods))
+	   (tramp-gvfs-methods tramp-archive-all-gvfs-methods))
+      (unwind-protect
+	  (with-parsed-tramp-archive-file-name
+	      (expand-file-name "bar" tramp-archive-test-archive) nil
+	    (should (string-equal method tramp-archive-method))
+	    (should-not user)
+	    (should-not domain)
+	    (should
+	     (string-equal
+	      host
+	      (file-remote-p
+	       (tramp-archive-gvfs-file-name tramp-archive-test-archive)
+	       'host)))
+	    ;; We reimplement the logic of tramp-archive.el here.
+	    ;; Don't know, whether it is worth the test.
+	    (should
+	     (string-equal
+	      host
+	      (url-hexify-string
+	       (concat
+		(tramp-gvfs-url-file-name
+		 (tramp-make-tramp-file-name
+		  tramp-archive-method
+		  ;; User and Domain.
+		  nil nil
+		  ;; Host.
+		  (url-hexify-string
+		   (concat
+		    "file://"
+		    ;; `directory-file-name' does not leave file
+		    ;; archive boundaries.  So we must cut the
+		    ;; trailing slash ourselves.
+		    (substring
+		     (file-name-directory
+		      (tramp-archive-test-file-archive-hexlified))
+		     0 -1)))
+		  nil "/"))
+		(file-name-nondirectory tramp-archive-test-file-archive)))))
+	    (should-not port)
+	    (should (string-equal localname "/bar"))
+	    (should (string-equal archive tramp-archive-test-file-archive)))
 
-      ;; Cleanup.
-      (tramp-archive-cleanup-hash))))
+	;; Cleanup.
+	(tramp-archive-cleanup-hash)))))
 
 (ert-deftest tramp-archive-test05-expand-file-name ()
   "Check `expand-file-name'."
@@ -565,7 +612,7 @@ This checks also `file-name-as-directory', `file-name-directory',
 	     (looking-at-p
 	      (concat
 	       ;; There might be a summary line.
-	       "\\(total.+[[:digit:]]+\n\\)?"
+	       "\\(total.+[[:digit:]]+ ?[kKMGTPEZY]?i?B?\n\\)?"
 	       ;; We don't know in which order the files appear.
 	       (format
 		"\\(.+ %s\\( ->.+\\)?\n\\)\\{%d\\}"
@@ -661,7 +708,7 @@ This tests also `access-file', `file-readable-p' and `file-regular-p'."
 	  (setq attr (directory-files-and-attributes tmp-name 'full))
 	  (dolist (elt attr)
 	    (should (equal (file-attributes (car elt)) (cdr elt))))
-	  (setq attr (directory-files-and-attributes tmp-name nil "^b"))
+	  (setq attr (directory-files-and-attributes tmp-name nil "\\`b"))
 	  (should (equal (mapcar #'car attr) '("bar"))))
 
       ;; Cleanup.
@@ -955,11 +1002,13 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
     (tramp-archive-cleanup-hash)))
 
 (defun tramp-archive-test-all (&optional interactive)
-  "Run all tests for \\[tramp-archive]."
+  "Run all tests for \\[tramp-archive].
+If INTERACTIVE is non-nil, the tests are run interactively."
   (interactive "p")
   (funcall
    (if interactive #'ert-run-tests-interactively #'ert-run-tests-batch)
    "^tramp-archive"))
 
 (provide 'tramp-archive-tests)
+
 ;;; tramp-archive-tests.el ends here

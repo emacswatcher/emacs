@@ -7,11 +7,14 @@ or run the shell command 'info "(emacs)Contributing"'.)
 ** The Emacs repository
 
 Emacs development uses Git on Savannah for its main repository.
-Briefly, the following shell commands build and run Emacs from scratch:
+To configure Git for Emacs development, you can run the following:
 
 	git config --global user.name 'Your Name'
 	git config --global user.email 'your.name@example.com'
 	git config --global transfer.fsckObjects true
+
+The following shell commands then build and run Emacs from scratch:
+
 	git clone git://git.sv.gnu.org/emacs.git
 	cd emacs
 	./autogen.sh
@@ -20,8 +23,8 @@ Briefly, the following shell commands build and run Emacs from scratch:
 	src/emacs
 
 For more details, see
-http://www.emacswiki.org/emacs/GitQuickStartForEmacsDevs and
-http://www.emacswiki.org/emacs/GitForEmacsDevs or see the file
+https://www.emacswiki.org/emacs/GitQuickStartForEmacsDevs and
+https://www.emacswiki.org/emacs/GitForEmacsDevs or see the file
 admin/notes/git-workflow.
 
 ** Getting involved with development
@@ -50,15 +53,31 @@ archives.
 
 To email a patch you can use a shell command like 'git format-patch -1'
 to create a file, and then attach the file to your email.  This nicely
-packages the patch's commit message and changes.  To send just one
-such patch without additional remarks, you can use a command like
-'git send-email --to=bug-gnu-emacs@gnu.org 0001-DESCRIPTION.patch'.
+packages the patch's commit message and changes, and makes sure the
+format and whitespace are not munged in transit by the various mail
+agents.  To send just one such patch without additional remarks, it is
+also possible to use a command like
 
-Once the cumulative amount of your submissions exceeds about 15 lines
-of non-trivial changes, we will need you to assign to the FSF the
-copyright for your contributions.  Ask on emacs-devel@gnu.org, and we
-will send you the necessary form together with the instructions to
-fill and email it, in order to start this legal paperwork.
+  git send-email --to=bug-gnu-emacs@gnu.org 0001-DESCRIPTION.patch'.
+
+However, we prefer the 'git format-patch' method with attachment, as
+doing so delivers patches in the correct and easily-recognizable format
+more reliably, and makes the job of applying the patches easier and less
+error-prone.  It also allows sending patches whose author is someone
+other than the email sender.
+
+Once the cumulative amount of your submissions exceeds a dozen or so
+lines of non-trivial changes, we will need you to assign to the FSF
+the copyright for your contributions.  (To see how many lines were
+non-trivially changed, count only added and modified lines in the
+patched code.  Consider an added or changed line non-trivial if it
+includes at least one identifier, string, or substantial comment.)
+In most cases, to start the assignment process you should download
+https://git.savannah.gnu.org/cgit/gnulib.git/plain/doc/Copyright/request-assign.future
+and return the completed information to the address at the top.
+(There are other assignment options, but they are much less commonly used.)
+If you have questions about the assignment process, you can ask the
+address listed on the form, and/or emacs-devel@gnu.org.
 
 ** Issue tracker (a.k.a. "bug tracker")
 
@@ -245,13 +264,12 @@ them right the first time, so here are guidelines for formatting them:
 - There is no standard or recommended way to identify revisions in
   ChangeLog entries.  Using Git SHA1 values limits the usability of
   the references to Git, and will become much less useful if Emacs
-  switches to a different VCS.  So we recommend against that.
+  switches to a different VCS.  So we recommend against doing only that.
 
   One way to identify revisions is by quoting their summary line.
-  Another is with an action stamp - an RFC3339 date followed by !
-  followed by the committer's email - for example,
-  "2014-01-16T05:43:35Z!esr@thyrsus.com".  Often, "my previous commit"
-  will suffice.
+  Prefixing the summary with the commit date can give useful context
+  (use 'git show -s "--pretty=format:%cd \"%s\"" --date=short HASH' to
+  produce that).  Often, "my previous commit" will suffice.
 
 - There is no need to mention files such as NEWS and MAINTAINERS, or
   to indicate regeneration of files such as 'lib/gnulib.mk', in the
@@ -260,18 +278,22 @@ them right the first time, so here are guidelines for formatting them:
 
 ** Generating ChangeLog entries
 
-- You can use Emacs functions to write ChangeLog entries; see
+- If you use Emacs VC, you can use 'C-c C-w' to generate formatted
+  blank ChangeLog entries from the diff being committed, then use
+  'M-q' to combine and fill them.  See 'info "(emacs) Log Buffer"'.
+
+- Alternatively, you can use Emacs functions for ChangeLog files; see
   https://www.gnu.org/software/emacs/manual/html_node/emacs/Change-Log-Commands.html
   or run 'info "(emacs)Change Log Commands"'.
 
-- If you use Emacs VC, one way to format ChangeLog entries is to create
-  a top-level ChangeLog file manually, and update it with 'C-x 4 a' as
-  usual.  Do not register the ChangeLog file under git; instead, use
-  'C-c C-a' to insert its contents into your *vc-log* buffer.
-  Or if 'log-edit-hook' includes 'log-edit-insert-changelog' (which it
-  does by default), they will be filled in for you automatically.
+  To format ChangeLog entries with Emacs VC, create a top-level
+  ChangeLog file manually, and update it with 'C-x 4 a' as usual.  Do
+  not register the ChangeLog file under git; instead, use 'C-c C-a' to
+  insert its contents into your *vc-log* buffer.  Or if
+  'log-edit-hook' includes 'log-edit-insert-changelog' (which it does
+  by default), they will be filled in for you automatically.
 
-- Alternatively, you can use the vc-dwim command to maintain commit
+- Instead of Emacs VC, you can use the vc-dwim command to maintain commit
   messages.  When you create a source directory, run the shell command
   'git-changelog-symlink-init' to create a symbolic link from
   ChangeLog to .git/c/ChangeLog.  Edit this ChangeLog via its symlink

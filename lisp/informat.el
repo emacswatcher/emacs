@@ -1,6 +1,6 @@
-;;; informat.el --- info support functions package for Emacs
+;;; informat.el --- info support functions package for Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1986, 2001-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1986, 2001-2021 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: help
@@ -140,7 +140,7 @@
 		(or (bolp)
 		    (newline))
 		(insert "\^_\f\nTag table:\n")
-		(if (eq major-mode 'info-mode)
+		(if (derived-mode-p 'info-mode)
 		    (move-marker Info-tag-table-marker (point)))
 		(setq tag-list (nreverse tag-list))
 		(while tag-list
@@ -337,7 +337,7 @@ Check that every node pointer points to an existing node."
 						     (point))))
 			 (Info-extract-menu-node-name))))
 		  (goto-char (point-min))
-		  (while (re-search-forward "\\*note[ \n]*[^:\t]*:" nil t)
+		  (while (re-search-forward "\\*note\\>[^:\t]*:" nil t)
 		    (goto-char (+ (match-beginning 0) 5))
 		    (skip-chars-forward " \n")
 		    (Info-validate-node-name

@@ -1,6 +1,6 @@
-;;; calc-misc.el --- miscellaneous functions for Calc
+;;; calc-misc.el --- miscellaneous functions for Calc  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1990-1993, 2001-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1990-1993, 2001-2021 Free Software Foundation, Inc.
 
 ;; Author: David Gillespie <daveg@synaptics.com>
 
@@ -27,6 +27,7 @@
 
 (require 'calc)
 (require 'calc-macs)
+(require 'cl-lib)
 
 ;; Declare functions which are defined elsewhere.
 (declare-function calc-do-keypad "calc-keypd" (&optional full-display interactive))
@@ -116,14 +117,14 @@ Calc user interface as before (either C-x * C or C-x * K; initially C-x * C).
 		  (while (progn
 			   (message "Calc options: Calc, Keypad, ...  %s"
 				    "press SPC, DEL to scroll, C-g to cancel")
-			   (memq (car (setq key (calc-read-key t)))
+			   (memq (setq key (read-event))
 				 '(?  ?\C-h ?\C-? ?\C-v ?\M-v)))
-		    (condition-case err
-			(if (memq (car key) '(?  ?\C-v))
+		    (condition-case nil
+			(if (memq key '(?  ?\C-v))
 			    (scroll-up)
 			  (scroll-down))
 		      (error (beep))))
-		      (calc-unread-command (cdr key))))))
+		      (calc-unread-command key)))))
 	(calc-do-dispatch nil))
     (let ((calc-dispatch-help t))
       (calc-do-dispatch arg))))
@@ -175,9 +176,9 @@ Calc user interface as before (either C-x * C or C-x * K; initially C-x * C).
   "Create another, independent Calculator buffer."
   (interactive)
   (if (eq major-mode 'calc-mode)
-      (mapc (function
-	     (lambda (v)
-	      (set-default v (symbol-value v)))) calc-local-var-list))
+      (mapc (lambda (v)
+              (set-default v (symbol-value v)))
+            calc-local-var-list))
   (set-buffer (generate-new-buffer "*Calculator*"))
   (pop-to-buffer (current-buffer))
   (calc-mode))
@@ -273,9 +274,8 @@ Calc user interface as before (either C-x * C or C-x * K; initially C-x * C).
 ;;;###autoload
 (defun calc-do-handle-whys ()
   (setq calc-why (sort calc-next-why
-		       (function
-			(lambda (x y)
-			  (and (eq (car x) '*) (not (eq (car y) '*))))))
+                       (lambda (x y)
+                         (and (eq (car x) '*) (not (eq (car y) '*)))))
 	calc-next-why nil)
   (if (and calc-why (or (eq calc-auto-why t)
 			(and (eq (car (car calc-why)) '*)
@@ -504,7 +504,7 @@ With argument 0, switch line point is in with line mark is in."
        ;; 3 <-- mid-line = 3
        ;; 4 <-- point
        ;; 5 <-- bot-line = 5
-       (dotimes (i mid-line)
+       (dotimes (_ mid-line)
          (setq mid-cell old-top-list
                old-top-list (cdr old-top-list))
          (setcdr mid-cell new-top-list)
@@ -518,7 +518,7 @@ With argument 0, switch line point is in with line mark is in."
        ;; 2
        ;; 1
        (setq  prev-mid-cell old-top-list)
-       (dotimes (i (- bot-line mid-line))
+       (dotimes (_ (- bot-line mid-line))
          (setq bot-cell old-top-list
                old-top-list (cdr old-top-list))
          (setcdr bot-cell new-top-list)
@@ -658,10 +658,7 @@ loaded and the keystroke automatically re-typed."
 ;;;###autoload
 (defun math-zerop (a)
   (if (consp a)
-      (cond ((memq (car a) '(bigpos bigneg))
-	     (while (eq (car (setq a (cdr a))) 0))
-	     (null a))
-	    ((memq (car a) '(frac float polar mod))
+      (cond ((memq (car a) '(frac float polar mod))
 	     (math-zerop (nth 1 a)))
 	    ((eq (car a) 'cplx)
 	     (and (math-zerop (nth 1 a)) (math-zerop (nth 2 a))))
@@ -677,9 +674,7 @@ loaded and the keystroke automatically re-typed."
 ;;;###autoload
 (defun math-negp (a)
   (if (consp a)
-      (cond ((eq (car a) 'bigpos) nil)
-	    ((eq (car a) 'bigneg) (cdr a))
-	    ((memq (car a) '(float frac))
+      (cond ((memq (car a) '(float frac))
 	     (Math-integer-negp (nth 1 a)))
 	    ((eq (car a) 'hms)
 	     (if (math-zerop (nth 1 a))
@@ -712,9 +707,7 @@ loaded and the keystroke automatically re-typed."
 ;;;###autoload
 (defun math-posp (a)
   (if (consp a)
-      (cond ((eq (car a) 'bigpos) (cdr a))
-	    ((eq (car a) 'bigneg) nil)
-	    ((memq (car a) '(float frac))
+      (cond ((memq (car a) '(float frac))
 	     (Math-integer-posp (nth 1 a)))
 	    ((eq (car a) 'hms)
 	     (if (math-zerop (nth 1 a))
@@ -734,36 +727,20 @@ loaded and the keystroke automatically re-typed."
     (> a 0)))
 
 ;;;###autoload
-(defalias 'math-fixnump 'integerp)
+(defalias 'math-fixnump #'fixnump)
 ;;;###autoload
-(defalias 'math-fixnatnump 'natnump)
-
+(defun math-fixnatnump (x) (and (fixnump x) (natnump x)))
 
 ;; True if A is an even integer.  [P R R] [Public]
 ;;;###autoload
 (defun math-evenp (a)
-  (if (consp a)
-      (and (memq (car a) '(bigpos bigneg))
-	   (= (% (nth 1 a) 2) 0))
-    (= (% a 2) 0)))
+  (and (integerp a) (cl-evenp a)))
 
 ;; Compute A / 2, for small or big integer A.  [I i]
 ;; If A is negative, type of truncation is undefined.
 ;;;###autoload
 (defun math-div2 (a)
-  (if (consp a)
-      (if (cdr a)
-	  (math-normalize (cons (car a) (math-div2-bignum (cdr a))))
-	0)
-    (/ a 2)))
-
-;;;###autoload
-(defun math-div2-bignum (a)   ; [l l]
-  (if (cdr a)
-      (cons (+ (/ (car a) 2) (* (% (nth 1 a) 2) (/ math-bignum-digit-size 2)))
-	    (math-div2-bignum (cdr a)))
-    (list (/ (car a) 2))))
-
+  (/ a 2))
 
 ;; Reject an argument to a calculator function.  [Public]
 ;;;###autoload
@@ -779,19 +756,21 @@ loaded and the keystroke automatically re-typed."
 
 ;; The variable math-trunc-prec is local to math-trunc, but used by
 ;; math-trunc-fancy in calc-arith.el, which is called by math-trunc.
+(defvar math-trunc-prec)
 
 ;;;###autoload
-(defun math-trunc (a &optional math-trunc-prec)
-  (cond (math-trunc-prec
+(defun math-trunc (a &optional trunc-prec)
+  (cond (trunc-prec
 	 (require 'calc-ext)
-	 (math-trunc-special a math-trunc-prec))
+	 (math-trunc-special a trunc-prec))
 	((Math-integerp a) a)
 	((Math-looks-negp a)
 	 (math-neg (math-trunc (math-neg a))))
 	((eq (car a) 'float)
 	 (math-scale-int (nth 1 a) (nth 2 a)))
 	(t (require 'calc-ext)
-	   (math-trunc-fancy a))))
+	   (let ((math-trunc-prec trunc-prec))
+	     (math-trunc-fancy a)))))
 ;;;###autoload
 (defalias 'calcFunc-trunc 'math-trunc)
 
@@ -799,12 +778,13 @@ loaded and the keystroke automatically re-typed."
 
 ;; The variable math-floor-prec is local to math-floor, but used by
 ;; math-floor-fancy in calc-arith.el, which is called by math-floor.
+(defvar math-floor-prec)
 
 ;;;###autoload
-(defun math-floor (a &optional math-floor-prec)    ;  [Public]
-  (cond (math-floor-prec
+(defun math-floor (a &optional floor-prec)    ;  [Public]
+  (cond (floor-prec
 	 (require 'calc-ext)
-	 (math-floor-special a math-floor-prec))
+	 (math-floor-special a floor-prec))
 	((Math-integerp a) a)
 	((Math-messy-integerp a) (math-trunc a))
 	((Math-realp a)
@@ -812,7 +792,9 @@ loaded and the keystroke automatically re-typed."
 	     (math-add (math-trunc a) -1)
 	   (math-trunc a)))
 	(t (require 'calc-ext)
-	   (math-floor-fancy a))))
+	   (let ((math-floor-prec floor-prec))
+	     (math-floor-fancy a)))))
+
 ;;;###autoload
 (defalias 'calcFunc-floor 'math-floor)
 

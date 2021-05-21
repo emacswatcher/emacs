@@ -1,10 +1,11 @@
-;;; erc-speedbar.el --- Speedbar support for ERC
+;;; erc-speedbar.el --- Speedbar support for ERC  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2004, 2006-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2004, 2006-2021 Free Software Foundation, Inc.
 
 ;; Author: Mario Lang <mlang@delysid.org>
-;; Contributor: Eric M. Ludlam <eric@siege-engine.com>
-;; Maintainer: emacs-devel@gnu.org
+;; Contributor: Eric M. Ludlam <zappo@gnu.org>
+;; Maintainer: Amin Bandali <bandali@gnu.org>
+;; URL: https://www.emacswiki.org/emacs/ErcSpeedbar
 
 ;; This file is part of GNU Emacs.
 
@@ -42,7 +43,7 @@
 ;;; Customization:
 
 (defgroup erc-speedbar nil
-  "Integration of ERC in the Speedbar"
+  "Integration of ERC in the Speedbar."
   :group 'erc)
 
 (defcustom erc-speedbar-sort-users-type 'activity
@@ -51,7 +52,6 @@
 `activity'     - Sort users by channel activity
 `alphabetical' - Sort users alphabetically
 nil            - Do not sort users"
-  :group 'erc-speedbar
   :type '(choice (const :tag "Sort users by channel activity" activity)
 		 (const :tag "Sort users alphabetically" alphabetical)
 		 (const :tag "Do not sort users" nil)))
@@ -66,11 +66,11 @@ nil            - Do not sort users"
     (setq erc-speedbar-key-map (speedbar-make-specialized-keymap))
 
     ;; Basic tree features
-    (define-key erc-speedbar-key-map "e" 'speedbar-edit-line)
-    (define-key erc-speedbar-key-map "\C-m" 'speedbar-edit-line)
-    (define-key erc-speedbar-key-map "+" 'speedbar-expand-line)
-    (define-key erc-speedbar-key-map "=" 'speedbar-expand-line)
-    (define-key erc-speedbar-key-map "-" 'speedbar-contract-line))
+    (define-key erc-speedbar-key-map "e" #'speedbar-edit-line)
+    (define-key erc-speedbar-key-map "\C-m" #'speedbar-edit-line)
+    (define-key erc-speedbar-key-map "+" #'speedbar-expand-line)
+    (define-key erc-speedbar-key-map "=" #'speedbar-expand-line)
+    (define-key erc-speedbar-key-map "-" #'speedbar-contract-line))
 
   (speedbar-add-expansion-list '("ERC" erc-speedbar-menu-items
 				 erc-speedbar-key-map
@@ -89,9 +89,8 @@ nil            - Do not sort users"
   "Additional menu-items to add to speedbar frame.")
 
 ;; Make sure our special speedbar major mode is loaded
-(if (featurep 'speedbar)
-    (erc-install-speedbar-variables)
-  (add-hook 'speedbar-load-hook 'erc-install-speedbar-variables))
+(with-eval-after-load 'speedbar
+  (erc-install-speedbar-variables))
 
 ;;; ERC hierarchy display method
 ;;;###autoload
@@ -124,7 +123,7 @@ This will add a speedbar major display mode."
 	   (erc-speedbar-insert-target buffer 0))
 	  (t (ignore)))))
 
-(defun erc-speedbar-server-buttons (directory depth)
+(defun erc-speedbar-server-buttons (_directory depth)
   "Insert the initial list of servers you are connected to."
   (let ((servers (erc-buffer-list
 		  (lambda ()
@@ -154,7 +153,7 @@ This will add a speedbar major display mode."
 	(t (error "Ooops... not sure what to do")))
   (speedbar-center-buffer-smartly))
 
-(defun erc-speedbar-channel-buttons (directory depth server-buffer)
+(defun erc-speedbar-channel-buttons (_directory depth server-buffer)
   (when (get-buffer server-buffer)
     (let* ((proc (with-current-buffer server-buffer erc-server-process))
 	   (targets (erc-buffer-list
@@ -191,7 +190,7 @@ INDENT is the current indentation level."
      (save-excursion
        (end-of-line) (forward-char 1)
        (let ((modes (with-current-buffer channel
-		      (concat (apply 'concat
+		      (concat (apply #'concat
 				     erc-channel-modes)
 			      (cond
 			       ((and erc-channel-user-limit
@@ -270,8 +269,8 @@ INDENT is the current indentation level."
        indent))))
 
 (defun erc-speedbar-update-channel (buffer)
-  "Update the speedbar information about a ERC buffer. The update
-is only done when the channel is actually expanded already."
+  "Update the speedbar information about a ERC buffer.
+The update is only done when the channel is actually expanded already."
   ;; This is only a rude hack and doesn't care about multiserver usage
   ;; yet, consider this a brain storming, better ideas?
   (with-current-buffer speedbar-buffer
@@ -314,7 +313,7 @@ is only done when the channel is actually expanded already."
 	(t (error "Ooops... not sure what to do")))
   (speedbar-center-buffer-smartly))
 
-(defun erc-speedbar-goto-buffer (text buffer indent)
+(defun erc-speedbar-goto-buffer (_text buffer _indent)
   "When user clicks on TEXT, goto an ERC buffer.
 The INDENT level is ignored."
   (if (featurep 'dframe)
@@ -362,6 +361,4 @@ The INDENT level is ignored."
 ;;
 ;; Local Variables:
 ;; generated-autoload-file: "erc-loaddefs.el"
-;; indent-tabs-mode: t
-;; tab-width: 8
 ;; End:

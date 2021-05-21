@@ -1,5 +1,5 @@
 /* Call a Lisp function interactively.
-   Copyright (C) 1985-1986, 1993-1995, 1997, 2000-2019 Free Software
+   Copyright (C) 1985-1986, 1993-1995, 1997, 2000-2021 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -21,7 +21,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <config.h>
 
 #include "lisp.h"
-#include "ptr-bounds.h"
 #include "character.h"
 #include "buffer.h"
 #include "keyboard.h"
@@ -35,7 +34,6 @@ static Lisp_Object point_marker;
 /* String for the prompt text used in Fcall_interactively.  */
 static Lisp_Object callint_message;
 
-/* ARGSUSED */
 DEFUN ("interactive", Finteractive, Sinteractive, 0, UNEVALLED, 0,
        doc: /* Specify a way of parsing arguments for interactive use of a function.
 For example, write
@@ -54,10 +52,12 @@ Usually the argument of `interactive' is a string containing a code
  arguments to the command, concatenate the individual strings,
  separating them by newline characters.
 
-Prompts are passed to `format', and may use % escapes to print the
+Prompts are passed to `format', and may use %s escapes to print the
  arguments that have already been read.
+
 If the argument is not a string, it is evaluated to get a list of
  arguments to pass to the command.
+
 Just `(interactive)' means pass no arguments to the command when
  calling interactively.
 
@@ -104,7 +104,14 @@ If the string begins with `^' and `shift-select-mode' is non-nil,
  Emacs first calls the function `handle-shift-selection'.
 You may use `@', `*', and `^' together.  They are processed in the
  order that they appear, before reading any arguments.
-usage: (interactive &optional ARG-DESCRIPTOR)  */
+
+If MODES is present, it should be a list of mode names (symbols) that
+this command is applicable for.  The main effect of this is that
+`M-x TAB' (by default) won't list this command if the current buffer's
+mode doesn't match the list.  That is, if either the major mode isn't
+derived from them, or (when it's a minor mode) the mode isn't in effect.
+
+usage: (interactive &optional ARG-DESCRIPTOR &rest MODES)  */
        attributes: const)
   (Lisp_Object args)
 {
@@ -266,8 +273,9 @@ means unconditionally put this command in the variable `command-history'.
 Otherwise, this is done only if an arg is read using the minibuffer.
 
 Optional third arg KEYS, if given, specifies the sequence of events to
-supply, as a vector, if the command inquires which events were used to
-invoke it.  If KEYS is omitted or nil, the return value of
+supply, as a vector, if FUNCTION inquires which events were used to
+invoke it (via an `interactive' spec that contains, for instance, an
+\"e\" code letter).  If KEYS is omitted or nil, the return value of
 `this-command-keys-vector' is used.  */)
   (Lisp_Object function, Lisp_Object record_flag, Lisp_Object keys)
 {
@@ -281,6 +289,11 @@ invoke it.  If KEYS is omitted or nil, the return value of
   Lisp_Object save_this_original_command = Vthis_original_command;
   Lisp_Object save_real_this_command = Vreal_this_command;
   Lisp_Object save_last_command = KVAR (current_kboard, Vlast_command);
+
+  /* Bound recursively so that code can check the current command from
+     code running from minibuffer hooks (and the like), without being
+     overwritten by subsequent minibuffer calls.  */
+  specbind (Qcurrent_minibuffer_command, Vthis_command);
 
   if (NILP (keys))
     keys = this_command_keys, key_count = this_command_key_count;
@@ -438,9 +451,6 @@ invoke it.  If KEYS is omitted or nil, the return value of
   signed char *varies = (signed char *) (visargs + nargs);
 
   memclear (args, nargs * (2 * word_size + 1));
-  args = ptr_bounds_clip (args, nargs * sizeof *args);
-  visargs = ptr_bounds_clip (visargs, nargs * sizeof *visargs);
-  varies = ptr_bounds_clip (varies, nargs * sizeof *varies);
 
   if (!NILP (enable))
     specbind (Qenable_recursive_minibuffers, Qt);
@@ -714,7 +724,7 @@ invoke it.  If KEYS is omitted or nil, the return value of
 	default:
 	  {
 	    /* How many bytes are left unprocessed in the specs string?
-	       (Note that this excludes the trailing NUL byte.)  */
+	       (Note that this excludes the trailing null byte.)  */
 	    ptrdiff_t bytes_left = string_len - (tem - string);
 	    unsigned letter;
 
@@ -796,7 +806,7 @@ Its numeric meaning is what you would get from `(interactive "p")'.  */)
   else if (EQ (raw, Qminus))
     XSETINT (val, -1);
   else if (CONSP (raw) && FIXNUMP (XCAR (raw)))
-    XSETINT (val, XFIXNUM (XCAR (raw)));
+    val = XCAR (raw);
   else if (FIXNUMP (raw))
     val = raw;
   else

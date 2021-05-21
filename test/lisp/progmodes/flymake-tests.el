@@ -1,6 +1,6 @@
 ;;; flymake-tests.el --- Test suite for flymake -*- lexical-binding: t -*-
 
-;; Copyright (C) 2011-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2021 Free Software Foundation, Inc.
 
 ;; Author: Eduard Wiebe <usenet@pusto.de>
 
@@ -52,7 +52,7 @@
                                             (flymake-reporting-backends))
            while notdone
            unless noninteractive do (read-event "" nil 0.1)
-           do (sleep-for (+ 0.5 flymake-no-changes-timeout))
+           do (sleep-for (+ 0.5 (or flymake-no-changes-timeout 0)))
            finally (when notdone (ert-skip
                                   (format "Some backends not reporting yet %s"
                                           notdone)))))
@@ -142,8 +142,6 @@ SEVERITY-PREDICATE is used to setup
 
 (ert-deftest different-diagnostic-types ()
   "Test GCC warning via function predicate."
-  ;; http://lists.gnu.org/archive/html/emacs-devel/2019-03/msg01043.html
-  :expected-result (if (getenv "EMACS_HYDRA_CI") :failed :passed)
   (skip-unless (and (executable-find "gcc")
                     (version<=
                      "5" (string-trim

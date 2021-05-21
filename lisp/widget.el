@@ -1,6 +1,6 @@
-;;; widget.el --- a library of user interface components
+;;; widget.el --- a library of user interface components  -*- lexical-binding: t; -*-
 ;;
-;; Copyright (C) 1996-1997, 2001-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1997, 2001-2021 Free Software Foundation, Inc.
 ;;
 ;; Author: Per Abrahamsen <abraham@dina.kvl.dk>
 ;; Keywords: help, extensions, faces, hypermedia
@@ -44,7 +44,8 @@
   ;; 	(list 'or (list 'boundp (list 'car 'keywords))
   ;; 	  (list 'set (list 'car 'keywords) (list 'car 'keywords)))
   ;; 	(list 'setq 'keywords (list 'cdr 'keywords)))))
-  )
+  (declare (obsolete nil "27.1"))
+  nil)
 
 ;;(define-widget-keywords :documentation-indent
 ;;  :complete-function :complete :button-overlay
@@ -92,8 +93,6 @@ The third argument DOC is a documentation string for the widget."
 
 ;; This is used by external widget code (in W3, at least).
 (define-obsolete-function-alias 'widget-plist-member #'plist-member "26.1")
-
-;;; The End.
 
 (provide 'widget)
 

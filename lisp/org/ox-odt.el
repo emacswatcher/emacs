@@ -1,6 +1,6 @@
 ;;; ox-odt.el --- OpenDocument Text Exporter for Org Mode -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2010-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2021 Free Software Foundation, Inc.
 
 ;; Author: Jambunathan K <kjambunathan at gmail dot com>
 ;; Keywords: outlines, hypermedia, calendar, wp
@@ -27,8 +27,9 @@
 
 (require 'cl-lib)
 (require 'format-spec)
-(require 'ox)
 (require 'org-compat)
+(require 'org-macs)
+(require 'ox)
 (require 'table nil 'noerror)
 
 ;;; Define Back-End
@@ -95,7 +96,7 @@
 	      (if a (org-odt-export-to-odt t s v)
 		(org-open-file (org-odt-export-to-odt nil s v) 'system))))))
   :options-alist
-  '((:odt-styles-file "ODT_STYLES_FILE" nil nil t)
+  '((:odt-styles-file "ODT_STYLES_FILE" nil org-odt-styles-file t)
     (:description "DESCRIPTION" nil nil newline)
     (:keywords "KEYWORDS" nil nil space)
     (:subtitle "SUBTITLE" nil nil parse)
@@ -109,7 +110,6 @@
     (:odt-inline-formula-rules nil nil org-odt-inline-formula-rules)
     (:odt-inline-image-rules nil nil org-odt-inline-image-rules)
     (:odt-pixels-per-inch nil nil org-odt-pixels-per-inch)
-    (:odt-styles-file nil nil org-odt-styles-file)
     (:odt-table-styles nil nil org-odt-table-styles)
     (:odt-use-date-fields nil nil org-odt-use-date-fields)
     ;; Redefine regular option.
@@ -147,8 +147,7 @@
 Use this to infer values of `org-odt-styles-dir' and
 `org-odt-schema-dir'.")
 
-(defvar org-odt-data-dir
-  (expand-file-name "../../etc/" org-odt-lib-dir)
+(defvar org-odt-data-dir (expand-file-name "../../etc/" org-odt-lib-dir)
   "Data directory for ODT exporter.
 Use this to infer values of `org-odt-styles-dir' and
 `org-odt-schema-dir'.")
@@ -161,25 +160,17 @@ Use this to infer values of `org-odt-styles-dir' and
   "Regular expressions for special string conversion.")
 
 (defconst org-odt-schema-dir-list
-  (list
-   (and org-odt-data-dir
-	(expand-file-name "./schema/" org-odt-data-dir)) ; bail out
-   (eval-when-compile
-     (and (boundp 'org-odt-data-dir) org-odt-data-dir ; see make install
-	  (expand-file-name "./schema/" org-odt-data-dir))))
+  (list (expand-file-name "./schema/" org-odt-data-dir))
   "List of directories to search for OpenDocument schema files.
-Use this list to set the default value of
-`org-odt-schema-dir'.  The entries in this list are
-populated heuristically based on the values of `org-odt-lib-dir'
-and `org-odt-data-dir'.")
+Use this list to set the default value of `org-odt-schema-dir'.
+The entries in this list are populated heuristically based on the
+values of `org-odt-lib-dir' and `org-odt-data-dir'.")
 
 (defconst org-odt-styles-dir-list
   (list
    (and org-odt-data-dir
 	(expand-file-name "./styles/" org-odt-data-dir)) ; bail out
-   (eval-when-compile
-     (and (boundp 'org-odt-data-dir) org-odt-data-dir ; see make install
-	  (expand-file-name "./styles/" org-odt-data-dir)))
+   (expand-file-name "./styles/" org-odt-data-dir)
    (expand-file-name "../etc/styles/" org-odt-lib-dir) ; git
    (expand-file-name "./etc/styles/" org-odt-lib-dir)  ; elpa
    (expand-file-name "./org/" data-directory)	       ; system
@@ -749,7 +740,7 @@ link's path."
 		:value-type (regexp :tag "Path")))
 
 (defcustom org-odt-inline-image-rules
-  '(("file" . "\\.\\(jpeg\\|jpg\\|png\\|gif\\|svg\\)\\'"))
+  `(("file" . ,(regexp-opt '(".jpeg" ".jpg" ".png" ".gif" ".svg"))))
   "Rules characterizing image files that can be inlined into ODT.
 
 A rule consists in an association whose key is the type of link
@@ -822,7 +813,7 @@ form (TABLE-STYLE-NAME TABLE-TEMPLATE-NAME TABLE-CELL-OPTIONS).
 TABLE-STYLE-NAME is the style associated with the table through
 \"#+ATTR_ODT: :style TABLE-STYLE-NAME\" line.
 
-TABLE-TEMPLATE-NAME is a set of - upto 9 - automatic
+TABLE-TEMPLATE-NAME is a set of - up to 9 - automatic
 TABLE-CELL-STYLE-NAMEs and PARAGRAPH-STYLE-NAMEs (as defined
 below) that is included in `org-odt-content-template-file'.
 
@@ -948,7 +939,7 @@ See `org-odt--build-date-styles' for implementation details."
 	 (has-time-p (or (not timestamp)
 			 (org-timestamp-has-time-p timestamp)))
 	 (iso-date (let ((format (if has-time-p "%Y-%m-%dT%H:%M:%S"
-				   "%Y-%m-%dT%H:%M:%S")))
+				   "%Y-%m-%d")))
 		     (funcall format-timestamp timestamp format end))))
     (if iso-date-p iso-date
       (let* ((style (if has-time-p "OrgDate2" "OrgDate1"))
@@ -1357,17 +1348,18 @@ original parsed data.  INFO is a plist holding export options."
   ;; Update styles file.
   ;; Copy styles.xml.  Also dump htmlfontify styles, if there is any.
   ;; Write styles file.
-  (let* ((styles-file (plist-get info :odt-styles-file))
-	 (styles-file (and (org-string-nw-p styles-file)
-			   (read (org-trim styles-file))))
-	 ;; Non-availability of styles.xml is not a critical
-	 ;; error. For now, throw an error.
-	 (styles-file (or styles-file
-			  (plist-get info :odt-styles-file)
-			  (expand-file-name "OrgOdtStyles.xml"
-					    org-odt-styles-dir)
-			  (error "org-odt: Missing styles file?"))))
+  (let* ((styles-file
+	  (pcase (plist-get info :odt-styles-file)
+	    (`nil (expand-file-name "OrgOdtStyles.xml" org-odt-styles-dir))
+	    ((and s (pred (string-match-p "\\`(.*)\\'")))
+	     (condition-case nil
+		 (read s)
+	       (error (user-error "Invalid styles file specification: %S" s))))
+	    (filename (org-strip-quotes filename)))))
     (cond
+     ;; Non-availability of styles.xml is not a critical error.  For
+     ;; now, throw an error.
+     ((null styles-file) (error "Missing styles file"))
      ((listp styles-file)
       (let ((archive (nth 0 styles-file))
 	    (members (nth 1 styles-file)))
@@ -1377,7 +1369,7 @@ original parsed data.  INFO is a plist holding export options."
 	    (let* ((image-type (file-name-extension member))
 		   (media-type (format "image/%s" image-type)))
 	      (org-odt-create-manifest-file-entry media-type member))))))
-     ((and (stringp styles-file) (file-exists-p styles-file))
+     ((file-exists-p styles-file)
       (let ((styles-file-type (file-name-extension styles-file)))
 	(cond
 	 ((string= styles-file-type "xml")
@@ -1390,6 +1382,8 @@ original parsed data.  INFO is a plist holding export options."
 
     ;; create a manifest entry for styles.xml
     (org-odt-create-manifest-file-entry "text/xml" "styles.xml")
+    ;; Ensure we have write permissions to this file.
+    (set-file-modes (concat org-odt-zip-dir "styles.xml") #o600)
 
     ;; FIXME: Who is opening an empty styles.xml before this point?
     (with-current-buffer
@@ -1421,7 +1415,7 @@ original parsed data.  INFO is a plist holding export options."
       ;; the resulting odt file.
       (setq-local backup-inhibited t)
 
-      ;; Outline numbering is retained only upto LEVEL.
+      ;; Outline numbering is retained only up to LEVEL.
       ;; To disable outline numbering pass a LEVEL of 0.
 
       (goto-char (point-min))
@@ -1967,10 +1961,12 @@ contextual information."
 CONTENTS holds the contents of the item.  INFO is a plist holding
 contextual information."
   (let* ((plain-list (org-export-get-parent item))
+	 (count (org-element-property :counter item))
 	 (type (org-element-property :type plain-list)))
     (unless (memq type '(ordered unordered descriptive-1 descriptive-2))
       (error "Unknown list type: %S" type))
-    (format "\n<text:list-item>\n%s\n%s"
+    (format "\n<text:list-item%s>\n%s\n%s"
+	    (if count (format " text:start-value=\"%s\"" count) "")
 	    contents
 	    (if (org-element-map item 'table #'identity info 'first-match)
 		"</text:list-header>"
@@ -1996,8 +1992,13 @@ information."
 	  (let ((depth (or (and (string-match "\\<[0-9]+\\>" value)
 				(string-to-number (match-string 0 value)))
 			   (plist-get info :headline-levels)))
-		(localp (string-match-p "\\<local\\>" value)))
-	    (org-odt-toc depth info (and localp keyword))))
+		(scope
+		 (cond
+		  ((string-match ":target +\\(\".+?\"\\|\\S-+\\)" value) ;link
+		   (org-export-resolve-link
+		    (org-strip-quotes (match-string 1 value)) info))
+		  ((string-match-p "\\<local\\>" value) keyword)))) ;local
+	    (org-odt-toc depth info scope)))
 	 ((string-match-p "tables\\|figures\\|listings" value)
 	  ;; FIXME
 	  (ignore))))))))
@@ -2110,7 +2111,8 @@ SHORT-CAPTION are strings."
 	 (caption (let ((c (org-export-get-caption element-or-parent)))
 		    (and c (org-export-data c info))))
 	 ;; FIXME: We don't use short-caption for now
-	 (short-caption nil))
+	 ;; (short-caption nil)
+	 )
     (when (or label caption)
       (let* ((default-category
 	       (cl-case (org-element-type element)
@@ -2158,7 +2160,7 @@ SHORT-CAPTION are strings."
 			   "<text:sequence text:ref-name=\"%s\" text:name=\"%s\" text:formula=\"ooow:%s+1\" style:num-format=\"1\">%s</text:sequence>"
 			   label counter counter seqno))
 		   (?c . ,(or caption "")))))
-	       short-caption))
+	       nil)) ;; short-caption
 	    ;; Case 2: Handle Label reference.
 	    (reference
 	     (let* ((fmt (cddr (assoc-string label-style org-odt-label-styles t)))
@@ -2174,7 +2176,7 @@ SHORT-CAPTION are strings."
 ;;;; Links :: Inline Images
 
 (defun org-odt--copy-image-file (path)
-  "Returns the internal name of the file"
+  "Return the internal name of the file"
   (let* ((image-type (file-name-extension path))
 	 (media-type (format "image/%s" image-type))
 	 (target-dir "Images/")
@@ -2199,16 +2201,15 @@ SHORT-CAPTION are strings."
 (defun org-odt--image-size
   (file info &optional user-width user-height scale dpi embed-as)
   (let* ((--pixels-to-cms
-	  (function (lambda (pixels dpi)
-		      (let ((cms-per-inch 2.54)
-			    (inches (/ pixels dpi)))
-			(* cms-per-inch inches)))))
+          (lambda (pixels dpi)
+            (let ((cms-per-inch 2.54)
+                  (inches (/ pixels dpi)))
+              (* cms-per-inch inches))))
 	 (--size-in-cms
-	  (function
-	   (lambda (size-in-pixels dpi)
-	     (and size-in-pixels
-		  (cons (funcall --pixels-to-cms (car size-in-pixels) dpi)
-			(funcall --pixels-to-cms (cdr size-in-pixels) dpi))))))
+	  (lambda (size-in-pixels dpi)
+	    (and size-in-pixels
+		 (cons (funcall --pixels-to-cms (car size-in-pixels) dpi)
+		       (funcall --pixels-to-cms (cdr size-in-pixels) dpi)))))
 	 (dpi (or dpi (plist-get info :odt-pixels-per-inch)))
 	 (anchor-type (or embed-as "paragraph"))
 	 (user-width (and (not scale) user-width))
@@ -2362,14 +2363,14 @@ used as a communication channel."
 	 ;; If yes, note down its contents.  It will go in to frame
 	 ;; description.  This quite useful for debugging.
 	 (desc (and replaces (org-element-property :value replaces)))
-	 width height)
+	 ) ;; width height
     (cond
      ((eq embed-as 'character)
-      (org-odt--render-image/formula "InlineFormula" href width height
+      (org-odt--render-image/formula "InlineFormula" href nil nil ;; width height
 				     nil nil title desc))
      (t
       (let* ((equation (org-odt--render-image/formula
-			"CaptionedDisplayFormula" href width height
+			"CaptionedDisplayFormula" href nil nil ;; width height
 			captions nil title desc))
 	     (label
 	      (let* ((org-odt-category-map-alist
@@ -2379,7 +2380,7 @@ used as a communication channel."
 	(concat equation "<text:tab/>" label))))))
 
 (defun org-odt--copy-formula-file (src-file)
-  "Returns the internal name of the file"
+  "Return the internal name of the file"
   (let* ((target-dir (format "Formula-%04d/"
 			     (cl-incf org-odt-embedded-formulas-count)))
 	 (target-file (concat target-dir "content.xml")))
@@ -2699,13 +2700,14 @@ INFO is a plist holding contextual information.  See
 	 (path (cond
 		((member type '("http" "https" "ftp" "mailto"))
 		 (concat type ":" raw-path))
-		((string= type "file") (org-export-file-uri raw-path))
+		((string= type "file")
+		 (org-export-file-uri raw-path))
 		(t raw-path)))
 	 ;; Convert & to &amp; for correct XML representation
 	 (path (replace-regexp-in-string "&" "&amp;" path)))
     (cond
      ;; Link type is handled by a special function.
-     ((org-export-custom-protocol-maybe link desc 'odt))
+     ((org-export-custom-protocol-maybe link desc 'odt info))
      ;; Image file.
      ((and (not desc) imagep) (org-odt-link--inline-image link info))
      ;; Formula file.
@@ -2946,7 +2948,7 @@ channel."
 	     (when scheduled
 	       (concat
 		(format "<text:span text:style-name=\"%s\">%s</text:span>"
-			"OrgScheduledKeyword" org-deadline-string)
+			"OrgScheduledKeyword" org-scheduled-string)
 		(org-odt-timestamp scheduled contents info)))))))
 
 
@@ -3144,7 +3146,7 @@ and prefix with \"OrgSrc\".  For example,
 	 (code-info (org-export-unravel-code element))
 	 (code (car code-info))
 	 (refs (cdr code-info))
-	 ;; Does the src block contain labels?
+	 ;; Does the source block contain labels?
 	 (retain-labels (org-element-property :retain-labels element))
 	 ;; Does it have line numbers?
 	 (num-start (org-export-get-loc element info)))
@@ -3241,7 +3243,7 @@ styles congruent with the ODF-1.2 specification."
     (when style-spec
       ;; LibreOffice - particularly the Writer - honors neither table
       ;; templates nor custom table-cell styles.  Inorder to retain
-      ;; inter-operability with LibreOffice, only automatic styles are
+      ;; interoperability with LibreOffice, only automatic styles are
       ;; used for styling of table-cells.  The current implementation is
       ;; congruent with ODF-1.2 specification and hence is
       ;; future-compatible.
@@ -3728,7 +3730,8 @@ contextual information."
 		 (cache-dir (file-name-directory input-file))
 		 (cache-subdir (concat
 				(cl-case processing-type
-				  ((dvipng imagemagick) "ltxpng/")
+				  ((dvipng imagemagick)
+				   org-preview-latex-image-directory)
 				  (mathml "ltxmathml/"))
 				(file-name-sans-extension
 				 (file-name-nondirectory input-file))))
@@ -4239,7 +4242,7 @@ Return output file's name."
 			   `((?i . ,(shell-quote-argument in-file))
 			     (?I . ,(browse-url-file-url in-file))
 			     (?f . ,out-fmt)
-			     (?o . ,out-file)
+			     (?o . ,(shell-quote-argument out-file))
 			     (?O . ,(browse-url-file-url out-file))
 			     (?d . , (shell-quote-argument out-dir))
 			     (?D . ,(browse-url-file-url out-dir))

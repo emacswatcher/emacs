@@ -1,6 +1,6 @@
-;;; characters.el --- set syntax and category for multibyte characters
+;;; characters.el --- set syntax and category for multibyte characters  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997, 2000-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 2000-2021 Free Software Foundation, Inc.
 ;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
 ;;   2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -60,7 +60,7 @@ Vietnamese")
 ;; For each group (row) of 2-byte character sets.
 
 (define-category ?A "2-byte alnum
-Alpha-numeric characters of 2-byte character sets")
+Alphanumeric characters of 2-byte character sets")
 (define-category ?C "2-byte han
 Chinese (Han) characters of 2-byte character sets")
 (define-category ?G "2-byte Greek
@@ -226,6 +226,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 
 
 ;; JISX0208
+;; Note: Some of these have their syntax updated later below.
 (map-charset-chars #'modify-syntax-entry 'japanese-jisx0208 "_" #x2121 #x227E)
 (map-charset-chars #'modify-syntax-entry 'japanese-jisx0208 "_" #x2821 #x287E)
 (let ((chars '(?ー ?゛ ?゜ ?ヽ ?ヾ ?ゝ ?ゞ ?〃 ?仝 ?々 ?〆 ?〇)))
@@ -264,7 +265,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 (map-charset-chars #'modify-syntax-entry 'korean-ksc5601 "_" #x2121 #x227E)
 (map-charset-chars #'modify-syntax-entry 'korean-ksc5601 "_" #x2621 #x277E)
 (map-charset-chars #'modify-syntax-entry 'korean-ksc5601 "_" #x2830 #x287E)
-(map-charset-chars #'modify-syntax-entry 'korean-ksc5601 "_" #x2930 #x297E)
+(map-charset-chars #'modify-syntax-entry 'korean-ksc5601 "_" #x2930 #x2975)
 (map-charset-chars #'modify-category-entry 'korean-ksc5601 ?A #x2330 #x2339)
 (map-charset-chars #'modify-category-entry 'korean-ksc5601 ?A #x2341 #x235A)
 (map-charset-chars #'modify-category-entry 'korean-ksc5601 ?A #x2361 #x237A)
@@ -317,6 +318,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 (modify-syntax-entry #x5be ".") ; MAQAF
 (modify-syntax-entry #x5c0 ".") ; PASEQ
 (modify-syntax-entry #x5c3 ".") ; SOF PASUQ
+(modify-syntax-entry #x5c6 ".") ; NUN HAFUKHA
 (modify-syntax-entry #x5f3 ".") ; GERESH
 (modify-syntax-entry #x5f4 ".") ; GERSHAYIM
 
@@ -482,9 +484,9 @@ with L, LRE, or LRO Unicode bidi character type.")
 	  (progn
 	    (modify-syntax-entry chars syntax)
 	    (modify-category-entry chars category))
-	(mapc #'(lambda (x)
-		  (modify-syntax-entry x syntax)
-		  (modify-category-entry x category))
+        (mapc (lambda (x)
+                (modify-syntax-entry x syntax)
+                (modify-category-entry x category))
 	      chars)))))
 
 ;; Bidi categories
@@ -521,9 +523,9 @@ with L, LRE, or LRO Unicode bidi character type.")
   ;; syntax: ¢£¤¥¨ª¯²³´¶¸¹º.)  There should be a well-defined way of
   ;; relating Unicode categories to Emacs syntax codes.
 
-  ;; NBSP isn't semantically interchangeable with other whitespace chars,
-  ;; so it's more like punctuation.
-  (set-case-syntax ?  "." tbl)
+  ;; FIXME: We should probably just use the Unicode properties to set
+  ;; up the syntax table.
+
   (set-case-syntax ?¡ "." tbl)
   (set-case-syntax ?¦ "_" tbl)
   (set-case-syntax ?§ "." tbl)
@@ -558,7 +560,7 @@ with L, LRE, or LRO Unicode bidi character type.")
     (setq c (1+ c)))
 
   ;; Latin Extended Additional
-  (modify-category-entry '(#x1e00 . #x1ef9) ?l)
+  (modify-category-entry '(#x1E00 . #x1EF9) ?l)
 
   ;; Latin Extended-C
   (setq c #x2C60)
@@ -579,13 +581,13 @@ with L, LRE, or LRO Unicode bidi character type.")
     (setq c (1+ c)))
 
   ;; Greek
-  (modify-category-entry '(#x0370 . #x03ff) ?g)
+  (modify-category-entry '(#x0370 . #x03FF) ?g)
 
   ;; Armenian
   (setq c #x531)
 
   ;; Greek Extended
-  (modify-category-entry '(#x1f00 . #x1fff) ?g)
+  (modify-category-entry '(#x1F00 . #x1FFF) ?g)
 
   ;; cyrillic
   (modify-category-entry '(#x0400 . #x04FF) ?y)
@@ -597,48 +599,57 @@ with L, LRE, or LRO Unicode bidi character type.")
   ;; Cyrillic Extended-C
   (modify-category-entry '(#x1C80 . #x1C8F) ?y)
 
-  ;; general punctuation
+  ;; space characters (see section 6.2 in the Unicode Standard)
+  (set-case-syntax ?  " " tbl)
   (setq c #x2000)
   (while (<= c #x200b)
     (set-case-syntax c " " tbl)
     (setq c (1+ c)))
+  (let ((chars '(#x202F #x205F #x3000)))
+    (while chars
+      (set-case-syntax (car chars) " " tbl)
+      (setq chars (cdr chars))))
+  ;; general punctuation
   (while (<= c #x200F)
     (set-case-syntax c "." tbl)
     (setq c (1+ c)))
-  ;; Fixme: These aren't all right:
   (setq c #x2010)
-  (while (<= c #x2016)
-    (set-case-syntax c "_" tbl)
-    (setq c (1+ c)))
-  ;; Punctuation syntax for quotation marks (like `)
-  (while (<= c #x201f)
-    (set-case-syntax  c "." tbl)
-    (setq c (1+ c)))
-  ;; Fixme: These aren't all right:
-  (while (<= c #x2027)
-    (set-case-syntax c "_" tbl)
-    (setq c (1+ c)))
-  (while (<= c #x206F)
+  ;; Fixme: What to do with characters that have Pi and Pf
+  ;; Unicode properties?
+  (while (<= c #x2017)
     (set-case-syntax c "." tbl)
     (setq c (1+ c)))
+  ;; Punctuation syntax for quotation marks (like `)
+  (while (<= c #x201F)
+    (set-case-syntax  c "." tbl)
+    (setq c (1+ c)))
+  (while (<= c #x2027)
+    (set-case-syntax c "." tbl)
+    (setq c (1+ c)))
+  (setq c #x2030)
+  (while (<= c #x205E)
+    (set-case-syntax c "." tbl)
+    (setq c (1+ c)))
+  (let ((chars '(?‹ ?› ?⁄ ?⁒)))
+    (while chars
+      (modify-syntax-entry (car chars) "_")
+      (setq chars (cdr chars))))
 
-  ;; Fixme: The following blocks might be better as symbol rather than
-  ;; punctuation.
   ;; Arrows
   (setq c #x2190)
   (while (<= c #x21FF)
-    (set-case-syntax c "." tbl)
+    (set-case-syntax c "_" tbl)
     (setq c (1+ c)))
   ;; Mathematical Operators
   (while (<= c #x22FF)
-    (set-case-syntax c "." tbl)
+    (set-case-syntax c "_" tbl)
     (setq c (1+ c)))
   ;; Miscellaneous Technical
   (while (<= c #x23FF)
-    (set-case-syntax c "." tbl)
+    (set-case-syntax c "_" tbl)
     (setq c (1+ c)))
   ;; Control Pictures
-  (while (<= c #x243F)
+  (while (<= c #x244F)
     (set-case-syntax c "_" tbl)
     (setq c (1+ c)))
 
@@ -652,13 +663,13 @@ with L, LRE, or LRO Unicode bidi character type.")
   ;; Supplemental Mathematical Operators
   (setq c #x2A00)
   (while (<= c #x2AFF)
-    (set-case-syntax c "." tbl)
+    (set-case-syntax c "_" tbl)
     (setq c (1+ c)))
 
   ;; Miscellaneous Symbols and Arrows
   (setq c #x2B00)
   (while (<= c #x2BFF)
-    (set-case-syntax c "." tbl)
+    (set-case-syntax c "_" tbl)
     (setq c (1+ c)))
 
   ;; Coptic
@@ -674,12 +685,46 @@ with L, LRE, or LRO Unicode bidi character type.")
     (set-case-syntax c "." tbl)
     (setq c (1+ c)))
 
+  ;; Ideographic punctuation
+  (setq c #x3001)
+  (while (<= c #x3003)
+    (set-case-syntax c "." tbl)
+    (setq c (1+ c)))
+  (set-case-syntax #x30FB "." tbl)
+
+  ;; Symbols for Legacy Computing
+  (setq c #x1FB00)
+  (while (<= c #x1FBCA)
+    (set-case-syntax c "_" tbl)
+    (setq c (1+ c)))
+  ;; FIXME: Should these be digits?
+  (while (<= c #x1FBFF)
+    (set-case-syntax c "." tbl)
+    (setq c (1+ c)))
+
   ;; Fullwidth Latin
-  (setq c #xff21)
-  (while (<= c #xff3a)
+  (setq c #xFF01)
+  (while (<= c #xFF0F)
+    (set-case-syntax c "." tbl)
+    (setq c (1+ c)))
+  (set-case-syntax #xFF04 "_" tbl)
+  (set-case-syntax #xFF0B "_" tbl)
+  (set-case-syntax #xFF1A "." tbl)
+  (set-case-syntax #xFF1B "." tbl)
+  (set-case-syntax #xFF1F "." tbl)
+  (set-case-syntax #xFF20 "." tbl)
+  (setq c #xFF21)
+  (while (<= c #xFF3A)
     (modify-category-entry c ?l)
     (modify-category-entry (+ c #x20) ?l)
     (setq c (1+ c)))
+
+  ;; Halfwidth Latin
+  (setq c #xFF64)
+  (while (<= c #xFF65)
+    (set-case-syntax c "." tbl)
+    (setq c (1+ c)))
+  (set-case-syntax #xFF61 "." tbl)
 
   ;; Combining diacritics
   (modify-category-entry '(#x300 . #x362) ?^)
@@ -753,7 +798,14 @@ with L, LRE, or LRO Unicode bidi character type.")
         (funcall map-unicode-property 'uppercase
                  (lambda (lc uc) (aset up lc uc) (aset up uc uc)))
         (funcall map-unicode-property 'lowercase
-                 (lambda (uc lc) (aset down uc lc) (aset down lc lc))))))
+                 (lambda (uc lc) (aset down uc lc) (aset down lc lc)))
+
+        ;; Override the Unicode uppercase property for ß, since we are
+        ;; using our case tables for determining the case of a
+        ;; character (see uppercasep and lowercasep in buffer.h).
+        ;; The special-uppercase property of ß ensures that it is
+        ;; still upcased to SS per the usual convention.
+        (aset up ?ß ?ẞ))))
 
   ;; Clear out the extra slots so that they will be recomputed from the main
   ;; (downcase) table and upcase table.  Since we’re side-stepping the usual
@@ -964,6 +1016,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x0D41 . #x0D44)
 	   (#x0D4D . #x0D4D)
 	   (#x0D62 . #x0D63)
+           (#x0D81 . #x0D81)
 	   (#x0DCA . #x0DCA)
 	   (#x0DD2 . #x0DD6)
 	   (#x0E31 . #x0E31)
@@ -986,7 +1039,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x1039 . #x103A)
 	   (#x103D . #x103E)
 	   (#x1058 . #x1059)
-	   (#x105E . #x1160)
+	   (#x105E . #x1060)
 	   (#x1071 . #x1074)
 	   (#x1082 . #x1082)
 	   (#x1085 . #x1086)
@@ -1020,7 +1073,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x1A65 . #x1A6C)
 	   (#x1A73 . #x1A7C)
 	   (#x1A7F . #x1A7F)
-	   (#x1AB0 . #x1ABE)
+	   (#x1AB0 . #x1AC0)
 	   (#x1B00 . #x1B03)
 	   (#x1B34 . #x1B34)
 	   (#x1B36 . #x1B3A)
@@ -1058,6 +1111,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#xA806 . #xA806)
 	   (#xA80B . #xA80B)
 	   (#xA825 . #xA826)
+           (#xA82C . #xA82C)
 	   (#xA8C4 . #xA8C5)
 	   (#xA8E0 . #xA8F1)
 	   (#xA926 . #xA92D)
@@ -1094,6 +1148,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x10A01 . #x10A0F)
 	   (#x10A38 . #x10A3F)
 	   (#x10AE5 . #x10AE6)
+           (#x10EAB . #x10EAC)
 	   (#x11001 . #x11001)
 	   (#x11038 . #x11046)
 	   (#x1107F . #x11081)
@@ -1107,6 +1162,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x11180 . #x11181)
 	   (#x111B6 . #x111BE)
 	   (#x111CA . #x111CC)
+           (#x111CF . #x111CF)
 	   (#x1122F . #x11231)
 	   (#x11234 . #x11234)
 	   (#x11236 . #x11237)
@@ -1138,6 +1194,9 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x1171D . #x1171F)
 	   (#x11722 . #x11725)
 	   (#x11727 . #x1172B)
+           (#x1193B . #x1193C)
+           (#x1193E . #x1193E)
+           (#x11943 . #x11943)
 	   (#x11C30 . #x11C36)
 	   (#x11C38 . #x11C3D)
 	   (#x11C92 . #x11CA7)
@@ -1147,6 +1206,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x16AF0 . #x16AF4)
 	   (#x16B30 . #x16B36)
 	   (#x16F8F . #x16F92)
+           (#x16FE4 . #x16FE4)
 	   (#x1BC9D . #x1BC9E)
 	   (#x1BCA0 . #x1BCA3)
 	   (#x1D167 . #x1D169)
@@ -1210,7 +1270,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x2E80 . #x303E)
 	   (#x3040 . #x3247)
 	   (#x3250 . #x4DBF)
-	   (#x4E00 . #xA4CF)
+	   (#x4E00 . #x9FFF)
 	   (#xA490 . #xA4C6)
 	   (#xA960 . #xA97F)
 	   (#xAC00 . #xD7A3)
@@ -1219,9 +1279,11 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#xFE30 . #xFE6F)
 	   (#xFF01 . #xFF60)
 	   (#xFFE0 . #xFFE6)
-	   (#x16FE0 . #x16FE3)
+	   (#x16FE0 . #x16FE4)
+           (#x16FF0 . #x16FF1)
 	   (#x17000 . #x187F7)
-	   (#x18800 . #x18AF2)
+	   (#x18800 . #x18AFF)
+           (#x18B00 . #x18CD5)
 	   (#x1B000 . #x1B152)
            (#x1B164 . #x1B167)
            (#x1B170 . #x1B2FB)
@@ -1229,6 +1291,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x1F0CF . #x1F0CF)
 	   (#x1F18E . #x1F18E)
 	   (#x1F191 . #x1F19A)
+           (#x1F1AD . #x1F1AD)
 	   (#x1F200 . #x1F320)
 	   (#x1F32D . #x1F335)
 	   (#x1F337 . #x1F37C)
@@ -1253,22 +1316,27 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x1F680 . #x1F6C5)
 	   (#x1F6CC . #x1F6CC)
 	   (#x1F6D0 . #x1F6D2)
-           (#x1F6D5 . #x1F6D5)
+           (#x1F6D5 . #x1F6D7)
 	   (#x1F6EB . #x1F6EC)
-	   (#x1F6F4 . #x1F6FA)
+	   (#x1F6F4 . #x1F6FC)
            (#x1F7E0 . #x1F7EB)
-	   (#x1F90D . #x1F971)
-	   (#x1F973 . #x1F976)
-	   (#x1F97A . #x1F9A2)
+	   (#x1F90C . #x1F93A)
+           (#x1F93C . #x1F945)
+           (#x1F947 . #x1F978)
+	   (#x1F97A . #x1F9CB)
            (#x1F9A5 . #x1F9AA)
            (#x1F9AE . #x1F9CA)
            (#x1F9CD . #x1F9FF)
            (#x1FA00 . #x1FA53)
            (#x1FA60 . #x1FA6D)
-           (#x1FA70 . #x1FA73)
+           (#x1FA70 . #x1FA74)
            (#x1FA78 . #x1FA7A)
-           (#x1FA80 . #x1FA82)
-           (#x1FA90 . #x1FA95)
+           (#x1FA80 . #x1FA86)
+           (#x1FA90 . #x1FAA8)
+           (#x1FAB0 . #x1FAB6)
+           (#x1FAC0 . #x1FAC2)
+           (#x1FAD0 . #x1FAD6)
+           (#x1FB00 . #x1FB92)
 	   (#x20000 . #x2FFFF)
 	   (#x30000 . #x3FFFF))))
   (dolist (elt l)
@@ -1322,8 +1390,8 @@ with L, LRE, or LRO Unicode bidi character type.")
 	(dolist (charset-info (nthcdr 2 slot))
 	  (let ((charset (car charset-info)))
 	    (dolist (code-range (cdr charset-info))
-	      (map-charset-chars #'(lambda (range _arg)
-				     (set-char-table-range table range 2))
+              (map-charset-chars (lambda (range _arg)
+                                   (set-char-table-range table range 2))
 				 charset nil
 				 (car code-range) (cdr code-range)))))
 	(optimize-char-table table)
@@ -1349,8 +1417,8 @@ Setup char-width-table appropriate for non-CJK language environment."
   (require 'charscript))
 
 (map-charset-chars
- #'(lambda (range _ignore)
-     (set-char-table-range char-script-table range 'tibetan))
+ (lambda (range _ignore)
+   (set-char-table-range char-script-table range 'tibetan))
  'tibetan)
 
 
@@ -1358,14 +1426,14 @@ Setup char-width-table appropriate for non-CJK language environment."
 
 (when (setq unicode-category-table
 	    (unicode-property-table-internal 'general-category))
-  (map-char-table #'(lambda (key val)
-		      (if val
-			  (cond ((or (and (/= (aref (symbol-name val) 0) ?M)
-					  (/= (aref (symbol-name val) 0) ?C))
-				     (eq val 'Zs))
-				 (modify-category-entry key ?.))
-				((eq val 'Mn)
-				 (modify-category-entry key ?^)))))
+  (map-char-table (lambda (key val)
+                    (if val
+                        (cond ((or (and (/= (aref (symbol-name val) 0) ?M)
+                                        (/= (aref (symbol-name val) 0) ?C))
+                                   (eq val 'Zs))
+                               (modify-category-entry key ?.))
+                              ((eq val 'Mn)
+                               (modify-category-entry key ?^)))))
 		  unicode-category-table))
 
 (optimize-char-table (standard-category-table))
@@ -1456,21 +1524,21 @@ option `glyphless-char-display'."
 	    ((eq target 'format-control)
 	     (when unicode-category-table
 	       (map-char-table
-		#'(lambda (char category)
-		    (if (eq category 'Cf)
-			(let ((this-method method)
-			      from to)
-			  (if (consp char)
-			      (setq from (car char) to (cdr char))
-			    (setq from char to char))
-			  (while (<= from to)
-			    (when (/= from #xAD)
-			      (if (eq method 'acronym)
-				  (setq this-method
-					(aref char-acronym-table from)))
-			      (set-char-table-range glyphless-char-display
-						    from this-method))
-			    (setq from (1+ from))))))
+                (lambda (char category)
+                  (if (eq category 'Cf)
+                      (let ((this-method method)
+                            from to)
+                        (if (consp char)
+                            (setq from (car char) to (cdr char))
+                          (setq from char to char))
+                        (while (<= from to)
+                          (when (/= from #xAD)
+                            (if (eq method 'acronym)
+                                (setq this-method
+                                      (aref char-acronym-table from)))
+                            (set-char-table-range glyphless-char-display
+                                                  from this-method))
+                          (setq from (1+ from))))))
 		unicode-category-table)))
 	    ((eq target 'no-font)
 	     (set-char-table-extra-slot glyphless-char-display 0 method))

@@ -1,8 +1,8 @@
-;;; test.el --- Unit test file for Semantic Emacs Lisp support.
+;;; test.el --- Unit test file for Semantic Emacs Lisp support.  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2005-2019 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2021 Free Software Foundation, Inc.
 
-;; Author: Eric M. Ludlam <eric@siege-engine.com>
+;; Author: Eric M. Ludlam <zappo@gnu.org>
 
 ;; This file is part of GNU Emacs.
 
@@ -83,6 +83,7 @@
 (defvar a-defvar (cons 1 2)
   "Variable a")
 
+;; FIXME: This practice is not recommended in recent Emacs.  Remove?
 (defvar a-defvar-star (cons 1 2)
   "*User visible var a")
 
@@ -152,7 +153,4 @@
 (defvar-mode-local emacs-lisp-mode a-mode-local-def
   "some value")
 
-
-;;; Provide
-;;
 (provide 'test)

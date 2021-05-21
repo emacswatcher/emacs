@@ -1,5 +1,5 @@
 /* Declarations for `malloc' and friends.
-   Copyright (C) 1990-1993, 1995-1996, 1999, 2002-2007, 2013-2019 Free
+   Copyright (C) 1990-1993, 1995-1996, 1999, 2002-2007, 2013-2021 Free
    Software Foundation, Inc.
 		  Written May 1989 by Mike Haertel.
 
@@ -37,8 +37,6 @@ License along with this library.  If not, see <https://www.gnu.org/licenses/>.
 #endif
 
 #include "lisp.h"
-
-#include "ptr-bounds.h"
 
 #ifdef HAVE_MALLOC_H
 # if GNUC_PREREQ (4, 2, 0)
@@ -181,7 +179,7 @@ struct list
   };
 
 /* Free list headers for each fragment size.  */
-extern struct list _fraghead[];
+static struct list _fraghead[BLOCKLOG];
 
 /* List of blocks allocated with aligned_alloc and friends.  */
 struct alignlist
@@ -200,8 +198,7 @@ extern size_t _bytes_free;
 
 /* Internal versions of `malloc', `realloc', and `free'
    used when these functions need to call each other.
-   They are the same but don't call the hooks
-   and don't bound the resulting pointers.  */
+   They are the same but don't call the hooks.  */
 extern void *_malloc_internal (size_t);
 extern void *_realloc_internal (void *, size_t);
 extern void _free_internal (void *);
@@ -339,9 +336,6 @@ size_t _heapindex;
 /* Limit of valid info table indices.  */
 size_t _heaplimit;
 
-/* Free lists for each fragment size.  */
-struct list _fraghead[BLOCKLOG];
-
 /* Instrumentation.  */
 size_t _chunks_used;
 size_t _bytes_used;
@@ -350,10 +344,6 @@ size_t _bytes_free;
 
 /* Are you experienced?  */
 int __malloc_initialized;
-
-#else
-
-static struct list _fraghead[BLOCKLOG];
 
 #endif /* HYBRID_MALLOC */
 
@@ -558,7 +548,7 @@ malloc_initialize_1 (void)
   _heapinfo[0].free.size = 0;
   _heapinfo[0].free.next = _heapinfo[0].free.prev = 0;
   _heapindex = 0;
-  _heapbase = (char *) ptr_bounds_init (_heapinfo);
+  _heapbase = (char *) _heapinfo;
   _heaplimit = BLOCK (_heapbase + heapsize * sizeof (malloc_info));
 
   register_heapinfo ();
@@ -919,8 +909,7 @@ malloc (size_t size)
      among multiple threads.  We just leave it for compatibility with
      glibc malloc (i.e., assignments to gmalloc_hook) for now.  */
   hook = gmalloc_hook;
-  void *result = (hook ? hook : _malloc_internal) (size);
-  return ptr_bounds_clip (result, size);
+  return (hook ? hook : _malloc_internal) (size);
 }
 
 #if !(defined (_LIBC) || defined (HYBRID_MALLOC))
@@ -998,7 +987,6 @@ _free_internal_nolock (void *ptr)
 
   if (ptr == NULL)
     return;
-  ptr = ptr_bounds_init (ptr);
 
   PROTECT_MALLOC_STATE (0);
 
@@ -1310,7 +1298,6 @@ _realloc_internal_nolock (void *ptr, size_t size)
   else if (ptr == NULL)
     return _malloc_internal_nolock (size);
 
-  ptr = ptr_bounds_init (ptr);
   block = BLOCK (ptr);
 
   PROTECT_MALLOC_STATE (0);
@@ -1433,8 +1420,7 @@ realloc (void *ptr, size_t size)
     return NULL;
 
   hook = grealloc_hook;
-  void *result = (hook ? hook : _realloc_internal) (ptr, size);
-  return ptr_bounds_clip (result, size);
+  return (hook ? hook : _realloc_internal) (ptr, size);
 }
 /* Copyright (C) 1991, 1992, 1994 Free Software Foundation, Inc.
 
@@ -1608,7 +1594,6 @@ aligned_alloc (size_t alignment, size_t size)
 	{
 	  l->exact = result;
 	  result = l->aligned = (char *) result + adj;
-	  result = ptr_bounds_clip (result, size);
 	}
       UNLOCK_ALIGNED_BLOCKS ();
       if (l == NULL)
@@ -1705,16 +1690,6 @@ valloc (size_t size)
 #undef free
 
 #ifdef HYBRID_MALLOC
-/* Declare system malloc and friends.  */
-extern void *malloc (size_t size);
-extern void *realloc (void *ptr, size_t size);
-extern void *calloc (size_t nmemb, size_t size);
-extern void free (void *ptr);
-#ifdef HAVE_ALIGNED_ALLOC
-extern void *aligned_alloc (size_t alignment, size_t size);
-#elif defined HAVE_POSIX_MEMALIGN
-extern int posix_memalign (void **memptr, size_t alignment, size_t size);
-#endif
 
 /* Assuming PTR was allocated via the hybrid malloc, return true if
    PTR was allocated via gmalloc, not the system malloc.  Also, return
@@ -1751,13 +1726,31 @@ hybrid_calloc (size_t nmemb, size_t size)
   return gcalloc (nmemb, size);
 }
 
-void
-hybrid_free (void *ptr)
+static void
+hybrid_free_1 (void *ptr)
 {
   if (allocated_via_gmalloc (ptr))
     gfree (ptr);
   else
     free (ptr);
+}
+
+void
+hybrid_free (void *ptr)
+{
+  /* Stolen from Gnulib, to make sure we preserve errno.  */
+#if defined __GNUC__ && !defined __clang__
+  int err[2];
+  err[0] = errno;
+  err[1] = errno;
+  errno = 0;
+  hybrid_free_1 (ptr);
+  errno = err[errno == 0];
+#else
+  int err = errno;
+  hybrid_free_1 (ptr);
+  errno = err;
+#endif
 }
 
 #if defined HAVE_ALIGNED_ALLOC || defined HAVE_POSIX_MEMALIGN
@@ -2020,7 +2013,6 @@ mabort (enum mcheck_status status)
   __libc_fatal (msg);
 #else
   fprintf (stderr, "mcheck: %s\n", msg);
-  fflush (stderr);
   emacs_abort ();
 #endif
 }

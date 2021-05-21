@@ -1,10 +1,10 @@
 ;;; ruby-mode.el --- Major mode for editing Ruby files -*- lexical-binding: t -*-
 
-;; Copyright (C) 1994-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1994-2021 Free Software Foundation, Inc.
 
 ;; Authors: Yukihiro Matsumoto
 ;;	Nobuyoshi Nakada
-;; URL: http://www.emacswiki.org/cgi-bin/wiki/RubyMode
+;; URL: https://www.emacswiki.org/cgi-bin/wiki/RubyMode
 ;; Created: Fri Feb  4 14:49:13 JST 1994
 ;; Keywords: languages ruby
 ;; Version: 1.2
@@ -28,18 +28,11 @@
 
 ;; Provides font-locking, indentation support, and navigation for Ruby code.
 ;;
-;; If you're installing manually, you should add this to your .emacs
-;; file after putting it on your load path:
-;;
-;;    (autoload 'ruby-mode "ruby-mode" "Major mode for ruby files" t)
-;;    (add-to-list 'auto-mode-alist '("\\.rb\\'" . ruby-mode))
-;;    (add-to-list 'interpreter-mode-alist '("ruby" . ruby-mode))
-;;
 ;; Still needs more docstrings; search below for TODO.
 
 ;;; Code:
 
-(eval-when-compile (require 'cl-lib))
+(require 'cl-lib)
 
 (defgroup ruby nil
   "Major mode for editing Ruby code."
@@ -82,7 +75,7 @@
 
 (defconst ruby-block-mid-re
   (regexp-opt ruby-block-mid-keywords)
-  "Regexp to match where the indentation gets shallower in middle of block statements.")
+  "Regexp for where the indentation gets shallower in middle of block statements.")
 
 (defconst ruby-block-op-keywords
   '("and" "or" "not")
@@ -108,7 +101,7 @@
   "Regexp to match the beginning of a heredoc.")
 
   (defconst ruby-expression-expansion-re
-    "\\(?:[^\\]\\|\\=\\)\\(\\\\\\\\\\)*\\(#\\({[^}\n\\]*\\(\\\\.[^}\n\\]*\\)*}\\|\\(\\$\\|@\\|@@\\)\\(\\w\\|_\\)+\\|\\$[^a-zA-Z \n]\\)\\)"))
+    "#\\({[^}\n\\]*\\(\\\\.[^}\n\\]*\\)*}\\|\\(?:\\$\\|@\\|@@\\)\\(\\w\\|_\\)+\\|\\$[^a-zA-Z \n]\\)"))
 
 (defun ruby-here-doc-end-match ()
   "Return a regexp to find the end of a heredoc.
@@ -142,12 +135,11 @@ This should only be called after matching against `ruby-here-doc-beg-re'."
   "Regexp to match symbols.")
 
 (defvar ruby-use-smie t)
+(make-obsolete-variable 'ruby-use-smie nil "28.1")
 
 (defvar ruby-mode-map
   (let ((map (make-sparse-keymap)))
     (unless ruby-use-smie
-      (define-key map (kbd "M-C-b") 'ruby-backward-sexp)
-      (define-key map (kbd "M-C-f") 'ruby-forward-sexp)
       (define-key map (kbd "M-C-q") 'ruby-indent-exp))
     (when ruby-use-smie
       (define-key map (kbd "M-C-d") 'smie-down-list))
@@ -155,6 +147,7 @@ This should only be called after matching against `ruby-here-doc-beg-re'."
     (define-key map (kbd "M-C-n") 'ruby-end-of-block)
     (define-key map (kbd "C-c {") 'ruby-toggle-block)
     (define-key map (kbd "C-c '") 'ruby-toggle-string-quotes)
+    (define-key map (kbd "C-c C-f") 'ruby-find-library-file)
     map)
   "Keymap used in Ruby mode.")
 
@@ -169,14 +162,8 @@ This should only be called after matching against `ruby-here-doc-beg-re'."
     "--"
     ["Toggle String Quotes" ruby-toggle-string-quotes t]
     "--"
-    ["Backward Sexp" ruby-backward-sexp
-     :visible (not ruby-use-smie)]
-    ["Backward Sexp" backward-sexp
-     :visible ruby-use-smie]
-    ["Forward Sexp" ruby-forward-sexp
-     :visible (not ruby-use-smie)]
-    ["Forward Sexp" forward-sexp
-     :visible ruby-use-smie]
+    ["Backward Sexp" backward-sexp t]
+    ["Forward Sexp" forward-sexp t]
     ["Indent Sexp" ruby-indent-exp
      :visible (not ruby-use-smie)]
     ["Indent Sexp" prog-indent-sexp
@@ -304,6 +291,7 @@ Only has effect when `ruby-use-smie' is nil."
 
 (defcustom ruby-encoding-map
   '((us-ascii       . nil)       ;; Do not put coding: us-ascii
+    (utf-8          . nil)       ;; Default since Ruby 2.0
     (shift-jis      . cp932)     ;; Emacs charset name of Shift_JIS
     (shift_jis      . cp932)     ;; MIME charset name of Shift_JIS
     (japanese-cp932 . cp932))    ;; Emacs charset name of CP932
@@ -344,7 +332,7 @@ It is used when `ruby-encoding-magic-comment-style' is set to `custom'."
 (require 'smie)
 
 ;; Here's a simplified BNF grammar, for reference:
-;; http://www.cse.buffalo.edu/~regan/cse305/RubyBNF.pdf
+;; https://www.cse.buffalo.edu/~regan/cse305/RubyBNF.pdf
 (defconst ruby-smie-grammar
   (smie-prec2->grammar
    (smie-merge-prec2s
@@ -414,7 +402,10 @@ It is used when `ruby-encoding-magic-comment-style' is set to `custom'."
                   (or (and (bolp)
                            ;; Newline is escaped.
                            (not (eq (char-before (1- (point))) ?\\)))
-                      (memq (char-before) '(?\; ?=)))))
+                      (eq (char-before) ?\;)
+                      (and (eq (char-before) ?=)
+                           (equal (syntax-after (1- (point)))
+                                  (string-to-syntax "."))))))
 
 (defun ruby-smie--implicit-semi-p ()
   (save-excursion
@@ -608,7 +599,7 @@ It is used when `ruby-encoding-magic-comment-style' is set to `custom'."
     (`(:before . ,(or "(" "[" "{"))
      (cond
       ((and (equal token "{")
-            (not (smie-rule-prev-p "(" "{" "[" "," "=>" "=" "return" ";"))
+            (not (smie-rule-prev-p "(" "{" "[" "," "=>" "=" "return" ";" "do"))
             (save-excursion
               (forward-comment -1)
               (not (eq (preceding-char) ?:))))
@@ -740,10 +731,10 @@ It is used when `ruby-encoding-magic-comment-style' is set to `custom'."
 (defun ruby-mode-variables ()
   "Set up initial buffer-local variables for Ruby mode."
   (setq indent-tabs-mode ruby-indent-tabs-mode)
-  (if ruby-use-smie
-      (smie-setup ruby-smie-grammar #'ruby-smie-rules
-                  :forward-token  #'ruby-smie--forward-token
-                  :backward-token #'ruby-smie--backward-token)
+  (smie-setup ruby-smie-grammar #'ruby-smie-rules
+              :forward-token  #'ruby-smie--forward-token
+              :backward-token #'ruby-smie--backward-token)
+  (unless ruby-use-smie
     (setq-local indent-line-function #'ruby-indent-line))
   (setq-local comment-start "# ")
   (setq-local comment-end "")
@@ -770,7 +761,7 @@ The style of the comment is controlled by `ruby-encoding-magic-comment-style'."
 
 (defun ruby--detect-encoding ()
   (if (eq ruby-insert-encoding-magic-comment 'always-utf8)
-      "utf-8"
+      'utf-8
     (let ((coding-system
            (or save-buffer-coding-system
                buffer-file-coding-system)))
@@ -779,12 +770,11 @@ The style of the comment is controlled by `ruby-encoding-magic-comment-style'."
                 (or (coding-system-get coding-system 'mime-charset)
                     (coding-system-change-eol-conversion coding-system nil))))
       (if coding-system
-          (symbol-name
-           (if ruby-use-encoding-map
-               (let ((elt (assq coding-system ruby-encoding-map)))
-                 (if elt (cdr elt) coding-system))
-             coding-system))
-        "ascii-8bit"))))
+          (if ruby-use-encoding-map
+              (let ((elt (assq coding-system ruby-encoding-map)))
+                (if elt (cdr elt) coding-system))
+            coding-system)
+        'ascii-8bit))))
 
 (defun ruby--encoding-comment-required-p ()
   (or (eq ruby-insert-encoding-magic-comment 'always-utf8)
@@ -793,24 +783,25 @@ The style of the comment is controlled by `ruby-encoding-magic-comment-style'."
 (defun ruby-mode-set-encoding ()
   "Insert a magic comment header with the proper encoding if necessary."
   (save-excursion
-    (widen)
-    (goto-char (point-min))
-    (when (ruby--encoding-comment-required-p)
+    (save-restriction
+      (widen)
       (goto-char (point-min))
-      (let ((coding-system (ruby--detect-encoding)))
-        (when coding-system
-          (if (looking-at "^#!") (beginning-of-line 2))
-          (cond ((looking-at "\\s *#\\s *.*\\(en\\)?coding\\s *:\\s *\\([-a-z0-9_]*\\)")
-                 ;; update existing encoding comment if necessary
-                 (unless (string= (match-string 2) coding-system)
-                   (goto-char (match-beginning 2))
-                   (delete-region (point) (match-end 2))
-                   (insert coding-system)))
-                ((looking-at "\\s *#.*coding\\s *[:=]"))
-                (t (when ruby-insert-encoding-magic-comment
-                     (ruby--insert-coding-comment coding-system))))
-          (when (buffer-modified-p)
-            (basic-save-buffer-1)))))))
+      (when (ruby--encoding-comment-required-p)
+        (goto-char (point-min))
+        (let ((coding-system (ruby--detect-encoding)))
+          (when coding-system
+            (if (looking-at "^#!") (beginning-of-line 2))
+            (cond ((looking-at "\\s *#.*\\(en\\)?coding\\s *:\\s *\\([-a-z0-9_]*\\)")
+                   ;; update existing encoding comment if necessary
+                   (unless (string= (match-string 2) coding-system)
+                     (goto-char (match-beginning 2))
+                     (delete-region (point) (match-end 2))
+                     (insert (symbol-name coding-system))))
+                  ((looking-at "\\s *#.*coding\\s *[:=]"))
+                  (t (when ruby-insert-encoding-magic-comment
+                       (ruby--insert-coding-comment coding-system))))
+            (when (buffer-modified-p)
+              (basic-save-buffer-1))))))))
 
 (defvar ruby--electric-indent-chars '(?. ?\) ?} ?\]))
 
@@ -1059,22 +1050,12 @@ delimiter."
         (goto-char (point))
         )
        ((looking-at "[\\[{(]")
-        (let ((deep (ruby-deep-indent-paren-p (char-after))))
-          (if (and deep (or (not (eq (char-after) ?\{)) (ruby-expr-beg)))
-              (progn
-                (and (eq deep 'space) (looking-at ".\\s +[^# \t\n]")
-                     (setq pnt (1- (match-end 0))))
-                (setq nest (cons (cons (char-after (point)) pnt) nest))
-                (setq pcol (cons (cons pnt depth) pcol))
-                (setq depth 0))
-            (setq nest (cons (cons (char-after (point)) pnt) nest))
-            (setq depth (1+ depth))))
+        (setq nest (cons (cons (char-after (point)) pnt) nest))
+        (setq depth (1+ depth))
         (goto-char pnt)
         )
        ((looking-at "[])}]")
-        (if (ruby-deep-indent-paren-p (matching-paren (char-after)))
-            (setq depth (cdr (car pcol)) pcol (cdr pcol))
-          (setq depth (1- depth)))
+        (setq depth (1- depth))
         (setq nest (cdr nest))
         (goto-char pnt))
        ((looking-at ruby-block-end-re)
@@ -1387,7 +1368,8 @@ move forward."
 The defun begins at or after the point.  This function is called
 by `end-of-defun'."
   (interactive "p")
-  (ruby-forward-sexp)
+  (with-suppressed-warnings ((obsolete ruby-forward-sexp))
+    (ruby-forward-sexp))
   (let (case-fold-search)
     (when (looking-back (concat "^\\s *" ruby-block-end-re)
                         (line-beginning-position))
@@ -1476,11 +1458,14 @@ With ARG, move out of multiple blocks."
 (defun ruby-forward-sexp (&optional arg)
   "Move forward across one balanced expression (sexp).
 With ARG, do it many times.  Negative ARG means move backward."
+  (declare (obsolete forward-sexp "28.1"))
   ;; TODO: Document body
   (interactive "p")
   (cond
    (ruby-use-smie (forward-sexp arg))
-   ((and (numberp arg) (< arg 0)) (ruby-backward-sexp (- arg)))
+   ((and (numberp arg) (< arg 0))
+    (with-suppressed-warnings ((obsolete ruby-backward-sexp))
+      (ruby-backward-sexp (- arg))))
    (t
     (let ((i (or arg 1)))
       (condition-case nil
@@ -1524,11 +1509,14 @@ With ARG, do it many times.  Negative ARG means move backward."
 (defun ruby-backward-sexp (&optional arg)
   "Move backward across one balanced expression (sexp).
 With ARG, do it many times.  Negative ARG means move forward."
+  (declare (obsolete backward-sexp "28.1"))
   ;; TODO: Document body
   (interactive "p")
   (cond
    (ruby-use-smie (backward-sexp arg))
-   ((and (numberp arg) (< arg 0)) (ruby-forward-sexp (- arg)))
+   ((and (numberp arg) (< arg 0))
+    (with-suppressed-warnings ((obsolete ruby-forward-sexp))
+      (ruby-forward-sexp (- arg))))
    (t
     (let ((i (or arg 1)))
       (condition-case nil
@@ -1610,13 +1598,16 @@ See `add-log-current-defun-function'."
         (let* ((indent 0) mname mlist
                (start (point))
                (make-definition-re
-                (lambda (re)
+                (lambda (re &optional method-name?)
                   (concat "^[ \t]*" re "[ \t]+"
                           "\\("
                           ;; \\. and :: for class methods
-                          "\\([A-Za-z_]" ruby-symbol-re "*[?!]?\\|\\.\\|::" "\\)"
+                          "\\([A-Za-z_]" ruby-symbol-re "*[?!]?"
+                          "\\|"
+                          (if method-name? ruby-operator-re "\\.")
+                          "\\|::" "\\)"
                           "+\\)")))
-               (definition-re (funcall make-definition-re ruby-defun-beg-re))
+               (definition-re (funcall make-definition-re ruby-defun-beg-re t))
                (module-re (funcall make-definition-re "\\(class\\|module\\)")))
           ;; Get the current method definition (or class/module).
           (when (re-search-backward definition-re nil t)
@@ -1680,7 +1671,8 @@ See `add-log-current-defun-function'."
 (defun ruby-block-contains-point (pt)
   (save-excursion
     (save-match-data
-      (ruby-forward-sexp)
+      (with-suppressed-warnings ((obsolete ruby-forward-sexp))
+        (ruby-forward-sexp))
       (> (point) pt))))
 
 (defun ruby-brace-to-do-end (orig end)
@@ -1689,7 +1681,8 @@ See `add-log-current-defun-function'."
     (when (eq (char-before) ?\})
       (delete-char -1)
       (when (save-excursion
-              (skip-chars-backward " \t")
+              (let ((n (skip-chars-backward " \t")))
+                (if (< n 0) (delete-char (- n))))
               (not (bolp)))
         (insert "\n"))
       (insert "end")
@@ -1757,7 +1750,8 @@ If the result is do-end block, it will always be multiline."
                  (progn
                    (goto-char (or (match-beginning 1) (match-beginning 2)))
                    (setq beg (point))
-                   (save-match-data (ruby-forward-sexp))
+                   (with-suppressed-warnings ((obsolete ruby-forward-sexp))
+                     (save-match-data (ruby-forward-sexp)))
                    (setq end (point))
                    (> end start)))
             (if (match-beginning 1)
@@ -1802,6 +1796,28 @@ If the result is do-end block, it will always be multiline."
          (format "%s%s%s" string-quote content string-quote))
         (goto-char orig-point)))))
 
+(defun ruby-find-library-file (&optional feature-name)
+  "Visit a library file denoted by FEATURE-NAME.
+FEATURE-NAME is a relative file name, file extension is optional.
+This commands delegates to `gem which', which searches both
+installed gems and the standard library.  When called
+interactively, defaults to the feature name in the `require'
+or `gem' statement around point."
+  (interactive)
+  (unless feature-name
+    (let ((init (save-excursion
+                  (forward-line 0)
+                  (when (looking-at "\\(?:require\\| *gem\\) [\"']\\(.*?\\)[\"']")
+                    (match-string 1)))))
+      (setq feature-name (read-string "Feature name: " init))))
+  (let ((out
+         (substring
+          (shell-command-to-string (concat "gem which " feature-name))
+          0 -1)))
+    (if (string-match-p "\\`ERROR" out)
+        (user-error "%s" out)
+      (find-file out))))
+
 (eval-and-compile
   (defconst ruby-percent-literal-beg-re
     "\\(%\\)[qQrswWxIi]?\\([[:punct:]]\\)"
@@ -1834,7 +1850,7 @@ It will be properly highlighted even when the call omits parens.")
   "Syntactic keywords for Ruby mode.  See `syntax-propertize-function'."
   (let (case-fold-search)
     (goto-char start)
-    (remove-text-properties start end '(ruby-expansion-match-data))
+    (remove-text-properties start end '(ruby-expansion-match-data nil))
     (ruby-syntax-propertize-heredoc end)
     (ruby-syntax-enclosing-percent-literal end)
     (funcall
@@ -1851,9 +1867,17 @@ It will be properly highlighted even when the call omits parens.")
                                'syntax-table (string-to-syntax "_"))
             (string-to-syntax "'"))))
       ;; Symbols with special characters.
-      ("\\(^\\|[^:]\\)\\(:\\([-+~]@?\\|[/%&|^`]\\|\\*\\*?\\|<\\(<\\|=>?\\)?\\|>[>=]?\\|===?\\|=~\\|![~=]?\\|\\[\\]=?\\)\\)"
-       (3 (unless (nth 8 (syntax-ppss (match-beginning 3)))
+      (":\\([-+~]@?\\|[/%&|^`]\\|\\*\\*?\\|<\\(<\\|=>?\\)?\\|>[>=]?\\|===?\\|=~\\|![~=]?\\|\\[\\]=?\\)"
+       (1 (unless (or
+                   (nth 8 (syntax-ppss (match-beginning 1)))
+                   (eq (char-before (match-beginning 0)) ?:))
             (goto-char (match-end 0))
+            (string-to-syntax "_"))))
+      ;; Symbols ending with '=' (bug#42846).
+      (":[[:alpha:]][[:alnum:]_]*\\(=\\)"
+       (1 (unless (or (nth 8 (syntax-ppss))
+                      (eq (char-before (match-beginning 0)) ?:)
+                      (eq (char-after (match-end 3)) ?>))
             (string-to-syntax "_"))))
       ;; Part of method name when at the end of it.
       ("[!?]"
@@ -1869,9 +1893,14 @@ It will be properly highlighted even when the call omits parens.")
       ;; (semi-important for indentation).
       ("\\(:\\)\\(?:[({]\\|\\[[^]]\\)"
        (1 (string-to-syntax ".")))
-      ;; Regular expressions.  Start with matching unescaped slash.
-      ("\\(?:\\=\\|[^\\]\\)\\(?:\\\\\\\\\\)*\\(/\\)"
-       (1 (let ((state (save-excursion (syntax-ppss (match-beginning 1)))))
+      ;; Regular expressions.
+      ("\\(/\\)"
+       (1
+        ;; No unescaped slashes in front.
+        (when (save-excursion
+                (forward-char -1)
+                (cl-evenp (skip-chars-backward "\\\\")))
+          (let ((state (save-excursion (syntax-ppss (match-beginning 1)))))
             (when (or
                    ;; Beginning of a regexp.
                    (and (null (nth 8 state))
@@ -1884,11 +1913,17 @@ It will be properly highlighted even when the call omits parens.")
                    ;; string interpolation inside, or span
                    ;; several lines.
                    (eq ?/ (nth 3 state)))
-              (string-to-syntax "\"/")))))
+              (string-to-syntax "\"/"))))))
       ;; Expression expansions in strings.  We're handling them
       ;; here, so that the regexp rule never matches inside them.
       (ruby-expression-expansion-re
-       (0 (ignore (ruby-syntax-propertize-expansion))))
+       (0 (ignore
+           (if (save-excursion
+                 (goto-char (match-beginning 0))
+                 ;; The hash character is not escaped.
+                 (cl-evenp (skip-chars-backward "\\\\")))
+               (ruby-syntax-propertize-expansion)
+             (goto-char (match-beginning 1))))))
       ("^=en\\(d\\)\\_>" (1 "!"))
       ("^\\(=\\)begin\\_>" (1 "!"))
       ;; Handle here documents.
@@ -1978,8 +2013,8 @@ It will be properly highlighted even when the call omits parens.")
 (defun ruby-syntax-propertize-expansion ()
   ;; Save the match data to a text property, for font-locking later.
   ;; Set the syntax of all double quotes and backticks to punctuation.
-  (let* ((beg (match-beginning 2))
-         (end (match-end 2))
+  (let* ((beg (match-beginning 0))
+         (end (match-end 0))
          (state (and beg (save-excursion (syntax-ppss beg)))))
     (when (ruby-syntax-expansion-allowed-p state)
       (put-text-property beg (1+ beg) 'ruby-expansion-match-data
@@ -2092,11 +2127,9 @@ It will be properly highlighted even when the call omits parens.")
           "loop"
           "open"
           "p"
-          "print"
           "printf"
           "proc"
           "putc"
-          "puts"
           "require"
           "require_relative"
           "spawn"
@@ -2145,9 +2178,11 @@ It will be properly highlighted even when the call omits parens.")
           "fork"
           "global_variables"
           "local_variables"
+          "print"
           "private"
           "protected"
           "public"
+          "puts"
           "raise"
           "rand"
           "readline"
@@ -2171,12 +2206,7 @@ It will be properly highlighted even when the call omits parens.")
      (0 font-lock-builtin-face))
     ;; Symbols.
     ("\\(^\\|[^:]\\)\\(:@\\{0,2\\}\\(?:\\sw\\|\\s_\\)+\\)"
-     (2 font-lock-constant-face)
-     (3 (unless (and (eq (char-before (match-end 3)) ?=)
-                     (eq (char-after (match-end 3)) ?>))
-          ;; bug#18644
-          font-lock-constant-face)
-        nil t))
+     (2 font-lock-constant-face))
     ;; Special globals.
     (,(concat "\\$\\(?:[:\"!@;,/._><\\$?~=*&`'+0-9]\\|-[0adFiIlpvw]\\|"
               (regexp-opt '("LOAD_PATH" "LOADED_FEATURES" "PROGRAM_NAME"
@@ -2211,7 +2241,7 @@ It will be properly highlighted even when the call omits parens.")
      (1 font-lock-builtin-face))
     ;; Expression expansion.
     (ruby-match-expression-expansion
-     2 font-lock-variable-name-face t)
+     0 font-lock-variable-name-face t)
     ;; Negation char.
     ("\\(?:^\\|[^[:alnum:]_]\\)\\(!+\\)[^=~]"
      1 font-lock-negation-char-face)
@@ -2420,7 +2450,7 @@ If there is no Rubocop config file, Rubocop will be passed a flag
                                      "\\)"
                                      "\\|/"
                                      "\\(?:Gem\\|Rake\\|Cap\\|Thor"
-                                     "\\|Puppet\\|Berks"
+                                     "\\|Puppet\\|Berks\\|Brew"
                                      "\\|Vagrant\\|Guard\\|Pod\\)file"
                                      "\\)\\'"))
                    'ruby-mode))

@@ -1,6 +1,6 @@
 ;;; url-auth.el --- Uniform Resource Locator authorization modules -*- lexical-binding: t -*-
 
-;; Copyright (C) 1996-1999, 2004-2019 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1999, 2004-2021 Free Software Foundation, Inc.
 
 ;; Keywords: comm, data, processes, hypermedia
 
@@ -23,7 +23,6 @@
 
 (require 'url-vars)
 (require 'url-parse)
-(autoload 'url-warn "url")
 (autoload 'auth-source-search "auth-source")
 
 (defsubst url-auth-user-prompt (url realm)
@@ -39,7 +38,7 @@
 ;;; ------------------------
 ;;; This implements the BASIC authorization type.  See the online
 ;;; documentation at
-;;; http://www.w3.org/hypertext/WWW/AccessAuthorization/Basic.html
+;;; https://www.w3.org/hypertext/WWW/AccessAuthorization/Basic.html
 ;;; for the complete documentation on this type.
 ;;;
 ;;; This is very insecure, but it works as a proof-of-concept
@@ -82,11 +81,11 @@ instead of the filename inheritance method."
     (cond
      ((and user pass)
       ;; Explicit http://user:pass@foo/ URL.  Just return the credentials.
-      (setq retval (base64-encode-string (format "%s:%s" user pass))))
+      (setq retval (base64-encode-string (format "%s:%s" user pass) t)))
      ((and prompt (not byserv))
       (setq user (or
 		  (url-do-auth-source-search server type :user)
-		  (read-string (url-auth-user-prompt url realm)
+		  (read-string (url-auth-user-prompt href realm)
 			       (or user (user-real-login-name))))
 	    pass (or
 		  (url-do-auth-source-search server type :secret)
@@ -97,7 +96,8 @@ instead of the filename inheritance method."
 			     (setq retval
 				   (base64-encode-string
 				    (format "%s:%s" user
-					    (encode-coding-string pass 'utf-8))))))
+					    (encode-coding-string pass 'utf-8))
+                                    t))))
 		 (symbol-value url-basic-auth-storage))))
      (byserv
       (setq retval (cdr-safe (assoc file byserv)))
@@ -115,12 +115,12 @@ instead of the filename inheritance method."
 	  (progn
 	    (setq user (or
 			(url-do-auth-source-search server type :user)
-			(read-string (url-auth-user-prompt url realm)
+			(read-string (url-auth-user-prompt href realm)
 				     (user-real-login-name)))
 		  pass (or
 			(url-do-auth-source-search server type :secret)
 			(read-passwd "Password: "))
-		  retval (base64-encode-string (format "%s:%s" user pass))
+		  retval (base64-encode-string (format "%s:%s" user pass) t)
 		  byserv (assoc server (symbol-value url-basic-auth-storage)))
 	    (setcdr byserv
 		    (cons (cons file retval) (cdr byserv))))))
@@ -192,7 +192,7 @@ key cache `url-digest-auth-storage'."
 (defun url-digest-auth-make-cnonce ()
   "Compute a new unique client nonce value."
   (base64-encode-string
-   (format "%016x%016x" (random) (car (encode-time nil t)))
+   (format "%016x%016x" (random) (car (time-convert nil t)))
    t))
 
 (defun url-digest-auth-nonce-count (_nonce)
@@ -478,6 +478,8 @@ PROMPT is boolean - specifies whether to ask the user for a username/password
        if one cannot be found in the cache"
   (if (not realm)
       (setq realm (cdr-safe (assoc "realm" args))))
+  (if (equal realm "")
+      (setq realm nil))
   (if (stringp url)
       (setq url (url-generic-parse-url url)))
   (if (or (null type) (eq type 'any))
@@ -491,21 +493,19 @@ PROMPT is boolean - specifies whether to ask the user for a username/password
        (car-safe
 	(sort
 	 (mapcar
-	  (function
-	   (lambda (scheme)
-	     (if (fboundp (car (cdr scheme)))
-		 (cons (cdr (cdr scheme))
-		       (funcall (car (cdr scheme)) url nil nil realm))
-	       (cons 0 nil))))
+          (lambda (scheme)
+            (if (fboundp (car (cdr scheme)))
+                (cons (cdr (cdr scheme))
+                      (funcall (car (cdr scheme)) url nil nil realm))
+              (cons 0 nil)))
 	  url-registered-auth-schemes)
-	 (function
-	  (lambda (x y)
-	    (cond
-	     ((null (cdr x)) nil)
-	     ((and (cdr x) (null (cdr y))) t)
-	     ((and (cdr x) (cdr y))
-	      (>= (car x) (car y)))
-	     (t nil)))))))
+         (lambda (x y)
+           (cond
+            ((null (cdr x)) nil)
+            ((and (cdr x) (null (cdr y))) t)
+            ((and (cdr x) (cdr y))
+             (>= (car x) (car y)))
+            (t nil))))))
     (if (symbolp type) (setq type (symbol-name type)))
     (let* ((scheme (car-safe
 		    (cdr-safe (assoc (downcase type)
@@ -539,7 +539,7 @@ RATING   a rating between 1 and 10 of the strength of the authentication.
 		  (t rating)))
 	 (node (assoc type url-registered-auth-schemes)))
     (if (not (fboundp function))
-	(url-warn
+        (display-warning
 	 'security
 	 (format-message
 	  "Tried to register `%s' as an auth scheme, but it is not a function!"

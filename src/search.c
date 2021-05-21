@@ -1,6 +1,6 @@
 /* String search routines for GNU Emacs.
 
-Copyright (C) 1985-1987, 1993-1994, 1997-1999, 2001-2019 Free Software
+Copyright (C) 1985-1987, 1993-1994, 1997-1999, 2001-2021 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -73,7 +73,7 @@ static EMACS_INT search_buffer (Lisp_Object, ptrdiff_t, ptrdiff_t,
 
 Lisp_Object re_match_object;
 
-static _Noreturn void
+static AVOID
 matcher_overflow (void)
 {
   error ("Stack overflow in regexp matcher");
@@ -353,8 +353,8 @@ data if you want to preserve them.  */)
 }
 
 DEFUN ("posix-looking-at", Fposix_looking_at, Sposix_looking_at, 1, 1, 0,
-       doc: /* Return t if text after point matches regular expression REGEXP.
-Find the longest match, in accord with Posix regular expression rules.
+       doc: /* Return t if text after point matches REGEXP according to Posix rules.
+Find the longest match, in accordance with Posix regular expression rules.
 This function modifies the match data that `match-beginning',
 `match-end' and `match-data' access; save and restore the match
 data if you want to preserve them.  */)
@@ -449,7 +449,7 @@ matched by the parenthesis constructions in REGEXP. */)
 }
 
 DEFUN ("posix-string-match", Fposix_string_match, Sposix_string_match, 2, 3, 0,
-       doc: /* Return index of start of first match for REGEXP in STRING, or nil.
+       doc: /* Return index of start of first match for Posix REGEXP in STRING, or nil.
 Find the longest match, in accord with Posix regular expression rules.
 Case is ignored if `case-fold-search' is non-nil in the current buffer.
 If third arg START is non-nil, start search at that index in STRING.
@@ -613,7 +613,10 @@ newline_cache_on_off (struct buffer *buf)
 	{
 	  /* It should be on.  */
 	  if (base_buf->newline_cache == 0)
-	    base_buf->newline_cache = new_region_cache ();
+            {
+              base_buf->newline_cache = new_region_cache ();
+              __lsan_ignore_object (base_buf->newline_cache);
+            }
 	}
       return base_buf->newline_cache;
     }
@@ -994,7 +997,7 @@ find_before_next_newline (ptrdiff_t from, ptrdiff_t to,
   if (counted == cnt)
     {
       if (bytepos)
-	DEC_BOTH (pos, *bytepos);
+	dec_both (&pos, &*bytepos);
       else
 	pos--;
     }
@@ -1028,8 +1031,7 @@ search_command (Lisp_Object string, Lisp_Object bound, Lisp_Object noerror,
     }
   else
     {
-      CHECK_FIXNUM_COERCE_MARKER (bound);
-      lim = XFIXNUM (bound);
+      lim = fix_position (bound);
       if (n > 0 ? lim < PT : lim > PT)
 	error ("Invalid search bound (wrong side of point)");
       if (lim > ZV)
@@ -1324,12 +1326,7 @@ search_buffer_non_re (Lisp_Object string, ptrdiff_t pos,
     }
   else
     {
-      /* Converting multibyte to single-byte.
-
-         ??? Perhaps this conversion should be done in a special way
-         by subtracting nonascii-insert-offset from each non-ASCII char,
-         so that only the multibyte chars which really correspond to
-         the chosen single-byte character set can possibly match.  */
+      /* Converting multibyte to single-byte.  */
       raw_pattern_size = SCHARS (string);
       raw_pattern_size_byte = SCHARS (string);
       raw_pattern = SAFE_ALLOCA (raw_pattern_size + 1);
@@ -1359,8 +1356,8 @@ search_buffer_non_re (Lisp_Object string, ptrdiff_t pos,
       while (--len >= 0)
         {
           unsigned char str_base[MAX_MULTIBYTE_LENGTH], *str;
-          int c, translated, inverse;
-          int in_charlen, charlen;
+          int translated, inverse;
+          int charlen;
 
           /* If we got here and the RE flag is set, it's because we're
              dealing with a regexp known to be trivial, so the backslash
@@ -1373,7 +1370,7 @@ search_buffer_non_re (Lisp_Object string, ptrdiff_t pos,
               base_pat++;
             }
 
-          c = STRING_CHAR_AND_LENGTH (base_pat, in_charlen);
+          int in_charlen, c = string_char_and_length (base_pat, &in_charlen);
 
           if (NILP (trt))
             {
@@ -1556,12 +1553,10 @@ simple_search (EMACS_INT n, unsigned char *pat,
 
 	    while (this_len > 0)
 	      {
-		int charlen, buf_charlen;
-		int pat_ch, buf_ch;
-
-		pat_ch = STRING_CHAR_AND_LENGTH (p, charlen);
-		buf_ch = STRING_CHAR_AND_LENGTH (BYTE_POS_ADDR (this_pos_byte),
-						 buf_charlen);
+		int charlen, pat_ch = string_char_and_length (p, &charlen);
+		int buf_charlen, buf_ch
+		  = string_char_and_length (BYTE_POS_ADDR (this_pos_byte),
+					    &buf_charlen);
 		TRANSLATE (buf_ch, trt, buf_ch);
 
 		if (buf_ch != pat_ch)
@@ -1582,7 +1577,7 @@ simple_search (EMACS_INT n, unsigned char *pat,
 		break;
 	      }
 
-	    INC_BOTH (pos, pos_byte);
+	    inc_both (&pos, &pos_byte);
 	  }
 
 	n--;
@@ -1644,8 +1639,8 @@ simple_search (EMACS_INT n, unsigned char *pat,
 	      {
 		int pat_ch, buf_ch;
 
-		DEC_BOTH (this_pos, this_pos_byte);
-		PREV_CHAR_BOUNDARY (p, pat);
+		dec_both (&this_pos, &this_pos_byte);
+		p -= raw_prev_char_len (p);
 		pat_ch = STRING_CHAR (p);
 		buf_ch = STRING_CHAR (BYTE_POS_ADDR (this_pos_byte));
 		TRANSLATE (buf_ch, trt, buf_ch);
@@ -1664,7 +1659,7 @@ simple_search (EMACS_INT n, unsigned char *pat,
 		break;
 	      }
 
-	    DEC_BOTH (pos, pos_byte);
+	    dec_both (&pos, &pos_byte);
 	  }
 
 	n++;
@@ -2284,7 +2279,7 @@ and `replace-match'.  */)
 
 DEFUN ("posix-search-backward", Fposix_search_backward, Sposix_search_backward, 1, 4,
        "sPosix search backward: ",
-       doc: /* Search backward from point for match for regular expression REGEXP.
+       doc: /* Search backward from point for match for REGEXP according to Posix rules.
 Find the longest match in accord with Posix regular expression rules.
 Set point to the beginning of the occurrence found, and return point.
 An optional second argument bounds the search; it is a buffer position.
@@ -2312,7 +2307,7 @@ and `replace-match'.  */)
 
 DEFUN ("posix-search-forward", Fposix_search_forward, Sposix_search_forward, 1, 4,
        "sPosix search: ",
-       doc: /* Search forward from point for regular expression REGEXP.
+       doc: /* Search forward from point for REGEXP according to Posix rules.
 Find the longest match in accord with Posix regular expression rules.
 Set point to the end of the occurrence found, and return point.
 An optional second argument bounds the search; it is a buffer position.
@@ -2394,34 +2389,25 @@ since only regular expressions have distinguished subexpressions.  */)
   case_action = nochange;	/* We tried an initialization */
 				/* but some C compilers blew it */
 
-  if (search_regs.num_regs <= 0)
+  ptrdiff_t num_regs = search_regs.num_regs;
+  if (num_regs <= 0)
     error ("`replace-match' called before any match found");
 
-  if (NILP (subexp))
-    sub = 0;
-  else
-    {
-      CHECK_FIXNUM (subexp);
-      if (! (0 <= XFIXNUM (subexp) && XFIXNUM (subexp) < search_regs.num_regs))
-	args_out_of_range (subexp, make_fixnum (search_regs.num_regs));
-      sub = XFIXNUM (subexp);
-    }
+  sub = !NILP (subexp) ? check_integer_range (subexp, 0, num_regs - 1) : 0;
+  ptrdiff_t sub_start = search_regs.start[sub];
+  ptrdiff_t sub_end = search_regs.end[sub];
+  eassert (sub_start <= sub_end);
 
-  if (NILP (string))
+  /* Check whether the text to replace is present in the buffer/string.  */
+  if (! (NILP (string)
+	 ? BEGV <= sub_start && sub_end <= ZV
+	 : 0 <= sub_start && sub_end <= SCHARS (string)))
     {
-      if (search_regs.start[sub] < BEGV
-	  || search_regs.start[sub] > search_regs.end[sub]
-	  || search_regs.end[sub] > ZV)
-	args_out_of_range (make_fixnum (search_regs.start[sub]),
-			   make_fixnum (search_regs.end[sub]));
-    }
-  else
-    {
-      if (search_regs.start[sub] < 0
-	  || search_regs.start[sub] > search_regs.end[sub]
-	  || search_regs.end[sub] > SCHARS (string))
-	args_out_of_range (make_fixnum (search_regs.start[sub]),
-			   make_fixnum (search_regs.end[sub]));
+      if (sub_start < 0)
+	xsignal2 (Qerror,
+		  build_string ("replace-match subexpression does not exist"),
+		  subexp);
+      args_out_of_range (make_fixnum (sub_start), make_fixnum (sub_end));
     }
 
   if (NILP (fixedcase))
@@ -2429,8 +2415,8 @@ since only regular expressions have distinguished subexpressions.  */)
       /* Decide how to casify by examining the matched text. */
       ptrdiff_t last;
 
-      pos = search_regs.start[sub];
-      last = search_regs.end[sub];
+      pos = sub_start;
+      last = sub_end;
 
       if (NILP (string))
 	pos_byte = CHAR_TO_BYTE (pos);
@@ -2452,10 +2438,11 @@ since only regular expressions have distinguished subexpressions.  */)
 	  if (NILP (string))
 	    {
 	      c = FETCH_CHAR_AS_MULTIBYTE (pos_byte);
-	      INC_BOTH (pos, pos_byte);
+	      inc_both (&pos, &pos_byte);
 	    }
 	  else
-	    FETCH_STRING_CHAR_AS_MULTIBYTE_ADVANCE (c, string, pos, pos_byte);
+	    c = fetch_string_char_as_multibyte_advance (string,
+							&pos, &pos_byte);
 
 	  if (lowercasep (c))
 	    {
@@ -2506,9 +2493,8 @@ since only regular expressions have distinguished subexpressions.  */)
     {
       Lisp_Object before, after;
 
-      before = Fsubstring (string, make_fixnum (0),
-			   make_fixnum (search_regs.start[sub]));
-      after = Fsubstring (string, make_fixnum (search_regs.end[sub]), Qnil);
+      before = Fsubstring (string, make_fixnum (0), make_fixnum (sub_start));
+      after = Fsubstring (string, make_fixnum (sub_end), Qnil);
 
       /* Substitute parts of the match into NEWTEXT
 	 if desired.  */
@@ -2529,20 +2515,20 @@ since only regular expressions have distinguished subexpressions.  */)
 	      ptrdiff_t subend = 0;
 	      bool delbackslash = 0;
 
-	      FETCH_STRING_CHAR_ADVANCE (c, newtext, pos, pos_byte);
+	      c = fetch_string_char_advance (newtext, &pos, &pos_byte);
 
 	      if (c == '\\')
 		{
-		  FETCH_STRING_CHAR_ADVANCE (c, newtext, pos, pos_byte);
+		  c = fetch_string_char_advance (newtext, &pos, &pos_byte);
 
 		  if (c == '&')
 		    {
-		      substart = search_regs.start[sub];
-		      subend = search_regs.end[sub];
+		      substart = sub_start;
+		      subend = sub_end;
 		    }
 		  else if (c >= '1' && c <= '9')
 		    {
-		      if (c - '0' < search_regs.num_regs
+		      if (c - '0' < num_regs
 			  && search_regs.start[c - '0'] >= 0)
 			{
 			  substart = search_regs.start[c - '0'];
@@ -2607,13 +2593,8 @@ since only regular expressions have distinguished subexpressions.  */)
       return concat3 (before, newtext, after);
     }
 
-  /* Record point, then move (quietly) to the start of the match.  */
-  if (PT >= search_regs.end[sub])
-    opoint = PT - ZV;
-  else if (PT > search_regs.start[sub])
-    opoint = search_regs.end[sub] - ZV;
-  else
-    opoint = PT;
+  /* Record point.  A nonpositive OPOINT is actually an offset from ZV.  */
+  opoint = PT <= sub_start ? PT : max (PT, sub_end) - ZV;
 
   /* If we want non-literal replacement,
      perform substitution on the replacement string.  */
@@ -2646,7 +2627,8 @@ since only regular expressions have distinguished subexpressions.  */)
 
 	  if (str_multibyte)
 	    {
-	      FETCH_STRING_CHAR_ADVANCE_NO_CHECK (c, newtext, pos, pos_byte);
+	      c = fetch_string_char_advance_no_check (newtext,
+						      &pos, &pos_byte);
 	      if (!buf_multibyte)
 		c = CHAR_TO_BYTE8 (c);
 	    }
@@ -2655,7 +2637,7 @@ since only regular expressions have distinguished subexpressions.  */)
 	      /* Note that we don't have to increment POS.  */
 	      c = SREF (newtext, pos_byte++);
 	      if (buf_multibyte)
-		MAKE_CHAR_MULTIBYTE (c);
+		c = make_char_multibyte (c);
 	    }
 
 	  /* Either set ADD_STUFF and ADD_LEN to the text to put in SUBSTED,
@@ -2668,8 +2650,8 @@ since only regular expressions have distinguished subexpressions.  */)
 
 	      if (str_multibyte)
 		{
-		  FETCH_STRING_CHAR_ADVANCE_NO_CHECK (c, newtext,
-						      pos, pos_byte);
+		  c = fetch_string_char_advance_no_check (newtext,
+							  &pos, &pos_byte);
 		  if (!buf_multibyte && !ASCII_CHAR_P (c))
 		    c = CHAR_TO_BYTE8 (c);
 		}
@@ -2677,12 +2659,12 @@ since only regular expressions have distinguished subexpressions.  */)
 		{
 		  c = SREF (newtext, pos_byte++);
 		  if (buf_multibyte)
-		    MAKE_CHAR_MULTIBYTE (c);
+		    c = make_char_multibyte (c);
 		}
 
 	      if (c == '&')
 		idx = sub;
-	      else if (c >= '1' && c <= '9' && c - '0' < search_regs.num_regs)
+	      else if ('1' <= c && c <= '9' && c - '0' < num_regs)
 		{
 		  if (search_regs.start[c - '0'] >= 1)
 		    idx = c - '0';
@@ -2740,25 +2722,10 @@ since only regular expressions have distinguished subexpressions.  */)
       xfree (substed);
     }
 
-  /* The functions below modify the buffer, so they could trigger
-     various modification hooks (see signal_before_change and
-     signal_after_change).  If these hooks clobber the match data we
-     error out since otherwise this will result in confusing bugs.  */
-  ptrdiff_t sub_start = search_regs.start[sub];
-  ptrdiff_t sub_end = search_regs.end[sub];
-  ptrdiff_t num_regs = search_regs.num_regs;
-  newpoint = search_regs.start[sub] + SCHARS (newtext);
+  newpoint = sub_start + SCHARS (newtext);
 
   /* Replace the old text with the new in the cleanest possible way.  */
-  replace_range (search_regs.start[sub], search_regs.end[sub],
-                 newtext, 1, 0, 1, 1);
-  /* Update saved data to match adjustment made by replace_range.  */
-  {
-    ptrdiff_t change = newpoint - sub_end;
-    if (sub_start >= sub_end)
-      sub_start += change;
-    sub_end += change;
-  }
+  replace_range (sub_start, sub_end, newtext, 1, 0, 1, true);
 
   if (case_action == all_caps)
     Fupcase_region (make_fixnum (search_regs.start[sub]),
@@ -2766,20 +2733,21 @@ since only regular expressions have distinguished subexpressions.  */)
 		    Qnil);
   else if (case_action == cap_initial)
     Fupcase_initials_region (make_fixnum (search_regs.start[sub]),
-			     make_fixnum (newpoint));
+			     make_fixnum (newpoint), Qnil);
 
-  if (search_regs.start[sub] != sub_start
-      || search_regs.end[sub] != sub_end
-      || search_regs.num_regs != num_regs)
+  /* The replace_range etc. functions can trigger modification hooks
+     (see signal_before_change and signal_after_change).  Try to error
+     out if these hooks clobber the match data since clobbering can
+     result in confusing bugs.  We used to check for changes in
+     search_regs start and end, but that fails if modification hooks
+     remove or add text earlier in the buffer, so just check num_regs
+     now. */
+  if (search_regs.num_regs != num_regs)
     error ("Match data clobbered by buffer modification hooks");
 
-  /* Put point back where it was in the text.  */
-  if (opoint <= 0)
-    TEMP_SET_PT (opoint + ZV);
-  else
-    TEMP_SET_PT (opoint);
-
-  /* Now move point "officially" to the start of the inserted replacement.  */
+  /* Put point back where it was in the text, if possible.  */
+  TEMP_SET_PT (clip_to_bounds (BEGV, opoint + (opoint <= 0 ? ZV : 0), ZV));
+  /* Now move point "officially" to the end of the inserted replacement.  */
   move_if_not_intangible (newpoint);
 
   return Qnil;
@@ -3062,6 +3030,23 @@ If optional arg RESEAT is non-nil, make markers on LIST point nowhere.  */)
   return Qnil;
 }
 
+DEFUN ("match-data--translate", Fmatch_data__translate, Smatch_data__translate,
+       1, 1, 0,
+       doc: /* Add N to all positions in the match data.  Internal.  */)
+  (Lisp_Object n)
+{
+  CHECK_FIXNUM (n);
+  EMACS_INT delta = XFIXNUM (n);
+  if (!NILP (last_thing_searched))
+    for (ptrdiff_t i = 0; i < search_regs.num_regs; i++)
+      if (search_regs.start[i] >= 0)
+        {
+          search_regs.start[i] = max (0, search_regs.start[i] + delta);
+          search_regs.end[i] = max (0, search_regs.end[i] + delta);
+        }
+  return Qnil;
+}
+
 /* Called from Flooking_at, Fstring_match, search_buffer, Fstore_match_data
    if asynchronous code (filter or sentinel) is running. */
 static void
@@ -3164,10 +3149,12 @@ DEFUN ("regexp-quote", Fregexp_quote, Sregexp_quote, 1, 1, 0,
     }
 
   Lisp_Object result
-    = make_specified_string (temp,
-			     SCHARS (string) + backslashes_added,
-			     out - temp,
-			     STRING_MULTIBYTE (string));
+    = (backslashes_added > 0
+       ? make_specified_string (temp,
+                                SCHARS (string) + backslashes_added,
+                                out - temp,
+                                STRING_MULTIBYTE (string))
+       : string);
   SAFE_FREE ();
   return result;
 }
@@ -3300,7 +3287,7 @@ the buffer.  If the buffer doesn't have a cache, the value is nil.  */)
 		TYPE_MAXIMUM (ptrdiff_t), &nl_count_cache, NULL, true);
 
   /* Create vector and populate it.  */
-  cache_newlines = make_uninit_vector (nl_count_cache);
+  cache_newlines = make_vector (nl_count_cache, make_fixnum (-1));
 
   if (nl_count_cache)
     {
@@ -3314,15 +3301,12 @@ the buffer.  If the buffer doesn't have a cache, the value is nil.  */)
 	    break;
 	  ASET (cache_newlines, i, make_fixnum (found - 1));
 	}
-      /* Fill the rest of slots with an invalid position.  */
-      for ( ; i < nl_count_cache; i++)
-	ASET (cache_newlines, i, make_fixnum (-1));
     }
 
   /* Now do the same, but without using the cache.  */
   find_newline1 (BEGV, BEGV_BYTE, ZV, ZV_BYTE,
 		 TYPE_MAXIMUM (ptrdiff_t), &nl_count_buf, NULL, true);
-  buf_newlines = make_uninit_vector (nl_count_buf);
+  buf_newlines = make_vector (nl_count_buf, make_fixnum (-1));
   if (nl_count_buf)
     {
       for (from = BEGV, found = from, i = 0; from < ZV; from = found, i++)
@@ -3335,14 +3319,10 @@ the buffer.  If the buffer doesn't have a cache, the value is nil.  */)
 	    break;
 	  ASET (buf_newlines, i, make_fixnum (found - 1));
 	}
-      for ( ; i < nl_count_buf; i++)
-	ASET (buf_newlines, i, make_fixnum (-1));
     }
 
   /* Construct the value and return it.  */
-  val = make_uninit_vector (2);
-  ASET (val, 0, cache_newlines);
-  ASET (val, 1, buf_newlines);
+  val = CALLN (Fvector, cache_newlines, buf_newlines);
 
   if (old != NULL)
     set_buffer_internal_1 (old);
@@ -3387,12 +3367,6 @@ syms_of_search (void)
   Fput (Qinvalid_regexp, Qerror_message,
 	build_pure_c_string ("Invalid regexp"));
 
-  last_thing_searched = Qnil;
-  staticpro (&last_thing_searched);
-
-  saved_last_thing_searched = Qnil;
-  staticpro (&saved_last_thing_searched);
-
   re_match_object = Qnil;
   staticpro (&re_match_object);
 
@@ -3401,7 +3375,9 @@ syms_of_search (void)
 Some commands use this for user-specified regexps.
 Spaces that occur inside character classes or repetition operators
 or other such regexp constructs are not replaced with this.
-A value of nil (which is the normal value) means treat spaces literally.  */);
+A value of nil (which is the normal value) means treat spaces
+literally.  Note that a value with capturing groups can change the
+numbering of existing capture groups in unexpected ways.  */);
   Vsearch_spaces_regexp = Qnil;
 
   DEFSYM (Qinhibit_changing_match_data, "inhibit-changing-match-data");
@@ -3428,6 +3404,7 @@ is to bind it with `let' around a small expression.  */);
   defsubr (&Smatch_end);
   defsubr (&Smatch_data);
   defsubr (&Sset_match_data);
+  defsubr (&Smatch_data__translate);
   defsubr (&Sregexp_quote);
   defsubr (&Snewline_cache_check);
 
